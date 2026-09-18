@@ -1,0 +1,13 @@
+# Local-development override: exposes the databases and cache on the host so the
+# API and the test-suite can run outside Docker.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d app-db analytics-db cache
+services:
+  app-db:
+    ports:
+      - "5433:5432"
+  analytics-db:
+    ports:
+      - "5434:5432"
+  cache:
+    ports:
+      - "6380:6379"

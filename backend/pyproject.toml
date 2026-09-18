@@ -1,0 +1,58 @@
+[project]
+name = "lens-api"
+version = "0.1.0"
+description = "Lens — conversational analytics and dashboard composer (API)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.30,<0.31",
+    "pydantic>=2.8,<3",
+    "pydantic-settings>=2.4,<3",
+    "sqlalchemy[asyncio]>=2.0.32,<2.1",
+    "asyncpg>=0.29,<0.30",
+    "alembic>=1.13,<2",
+    "openai>=1.44,<2",
+    "sqlglot>=25.20,<26",
+    "argon2-cffi>=23.1,<24",
+    "pyjwt[crypto]>=2.9,<3",
+    "redis>=5.0,<6",
+    "prometheus-client>=0.20,<0.21",
+    "opentelemetry-api>=1.27,<2",
+    "opentelemetry-sdk>=1.27,<2",
+    "plotly>=5.24,<6",
+    "pandas>=2.2,<3",
+    "numpy>=2.0,<3",
+    "python-multipart>=0.0.9",
+    "email-validator>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["B008", "E501"]  # the formatter owns line width; E501 only fires on long string literals
