@@ -32,3 +32,6 @@ scratch/
 
 # analytics SQLite file built by the seed (backend/data/); the vendored upstream copy under app/db/seed/northwind is tracked
 backend/data/
+
+# the case-study brief (kept locally, not part of the submission)
+PwC_Middle East_Candidate Case Study Senior Associate.pdf

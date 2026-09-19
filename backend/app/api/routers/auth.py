@@ -1,4 +1,4 @@
-"""Auth routes: register (admin only), login, refresh (rotating, reuse-detecting), logout, me."""
+"""Auth routes: register (admin only), signup (public, viewer role, no scope), login, refresh (rotating, reuse-detecting), logout, me."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ async def register(
     request: Request,
     principal: Annotated[Principal, Depends(require_role(UserRole.admin))],
 ) -> UserOut:
-    """Admin-only registration.  Public sign-up is intentionally absent: identity is administered."""
+    """Admin-only registration: the path that sets a role; data scope is granted separately."""
     users = UserRepo(session)
     if await users.by_email(body.email) is not None:
         raise ConflictError("A user with that e-mail already exists")

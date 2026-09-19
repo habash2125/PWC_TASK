@@ -74,7 +74,11 @@ partner@lens.demo    Partner!Lens2024
 Passwords come from `.env.example` (`SEED_*_PASSWORD`).
 
 `analyst2` and `partner` exist so that the scope demonstration (step 6 below) needs no database edits.
-Public sign-up is intentionally absent: `POST /auth/register` is admin-only.
+
+Two ways to add a user: `POST /auth/register` (admin-only; sets role and is the path to grant a data scope) and
+public self-service `POST /auth/signup` (the *Create an account* link on the login page). Self sign-up is
+deliberately harmless: the new account is a `viewer` with **no** `access_scope` row, and scope is fail-closed,
+so it can sign in and see shared dashboards' *shells* but zero analytics rows until an admin grants a scope.
 
 ## Demo script
 
@@ -114,7 +118,7 @@ cd backend
 python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 printf 'APP_DB_HOST=localhost\nAPP_DB_PORT=5433\nANALYTICS_SQLITE_PATH=./data/analytics/northwind.db\nREDIS_URL=redis://localhost:6380/0\n' > .env
 alembic upgrade head && python -m app.seed && python -m app.db.seed.analytics_seed
-pytest -q                         # 218 tests: unit, functional, adversarial corpus, hermetic golden set
+pytest -q                         # 232 tests: unit, functional, adversarial corpus, hermetic golden set
 LENS_LIVE_EVAL=1 GUARD_ENFORCER=llm pytest -q tests/eval/test_golden.py -k live -s   # needs a provider key
 ```
 
@@ -177,4 +181,6 @@ backend/app/
 frontend/src/     api (typed client, TanStack hooks), auth (memory token, refresh interceptor), features/*
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, the trade-offs and the path to production.
+See [PROBLEM_FRAMING.md](PROBLEM_FRAMING.md) (also as [PDF](PROBLEM_FRAMING.pdf)) for the business problem,
+users, journey, why GenAI and where it stops, the data and its sensitivity, and the success criteria; and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the design, the trade-offs and the path to production.
