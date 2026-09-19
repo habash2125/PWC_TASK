@@ -26,13 +26,18 @@ class PriorTurn:
 
 
 def build_messages(
-    *, question: str, allow: AllowList, scope: ScopePredicate, history: list[PriorTurn]
+    *,
+    question: str,
+    allow: AllowList,
+    scope: ScopePredicate,
+    history: list[PriorTurn],
+    selected_views: set[str] | None = None,
 ) -> tuple[list[dict], str]:
     prompt = get_prompt("agent_system")
     context = "\n\n".join(
         [
-            wrap_data("schema", render_schema_context(allow)),
-            wrap_data("rules", render_business_rules(allow)),
+            wrap_data("schema", render_schema_context(allow, only=selected_views)),
+            wrap_data("rules", render_business_rules(allow, only=selected_views)),
             wrap_data("scope", scope_prompt_instruction(scope, allow.scoped_view_names)),
             wrap_data(
                 "chart_contract",

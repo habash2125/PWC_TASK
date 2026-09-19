@@ -3,6 +3,7 @@
  1  AuthN/AuthZ        — resolved by the route dependencies before we get here
  2  Injection screen   — pre-screen + guard model, structured verdict
  3  Context assembly   — allow-list schema + rules ∥ row-level scope (fail-closed)
+ 3b Table selection    — lightweight-catalog model call narrows the schema-context prompt (fail-open)
  4  Code generation    — native tool-calling loop, temperature 0, bounded
  5  SQL guard          — inside the loop, before every execution
  6  Execution          — read-only pool, statement timeout, errors fed back
@@ -35,6 +36,7 @@ from app.core.security.access_scope import DEFAULT_SCOPE_KEY, DbScopeSource, Sco
 from app.core.security.prompt_injection import screen_question
 from app.core.sql.schema_context import AllowList, load_allow_list
 from app.core.sql.sql_guard import SqlGuard
+from app.core.sql.table_selector import select_views
 from app.db.models import ChatSession, GuardKind, GuardVerdict, Turn, TurnStatus
 from app.db.repos.audit import AuditRepo
 from app.db.repos.chat import ChatRepo
@@ -252,7 +254,18 @@ async def run_turn(
         )
 
     history = [PriorTurn(t.question, t.answer_markdown or "") for t in await repo.recent_turns(chat.id)]
-    messages, prompt_version = build_messages(question=question, allow=allow, scope=scope, history=history)
+
+    # ── 3b. table selection: narrows the schema-context prompt only, never the allow-list (fail-open) ──
+    t0 = time.perf_counter()
+    with stage_span("table_select") as span:
+        selected_views, _ = await select_views(question=question, allow=allow)
+        span.set_attribute("filtered", selected_views is not None)
+        span.set_attribute("selected", len(selected_views) if selected_views is not None else len(allow.views))
+    timings["table_select"] = int((time.perf_counter() - t0) * 1000)
+
+    messages, prompt_version = build_messages(
+        question=question, allow=allow, scope=scope, history=history, selected_views=selected_views
+    )
 
     # ── 4–7. agent loop ───────────────────────────────────────────────────────
     with stage_span("agent", prompt_version_id=prompt_version) as span:

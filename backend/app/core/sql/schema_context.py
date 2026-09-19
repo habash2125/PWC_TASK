@@ -81,10 +81,16 @@ async def load_allow_list(session: AsyncSession, data_source_id: uuid.UUID) -> A
     return allow
 
 
-def render_schema_context(allow: AllowList) -> str:
-    """Plain-text schema block for the prompt.  Everything here is *data* from the allow-list."""
+def render_schema_context(allow: AllowList, only: set[str] | None = None) -> str:
+    """Plain-text schema block for the prompt.  Everything here is *data* from the allow-list.
+
+    ``only``, when given, is a set of lowercase view names that narrows what is rendered — a
+    prompt-size optimisation. It never changes ``allow`` itself; enforcement always sees every
+    enabled view.
+    """
+    names = sorted(allow.views) if only is None else sorted(n for n in allow.views if n in only)
     parts = []
-    for name in sorted(allow.views):
+    for name in names:
         v = allow.views[name]
         parts.append(f"VIEW {v.name}")
         parts.append(f"  purpose: {v.description}")
@@ -98,6 +104,7 @@ def render_schema_context(allow: AllowList) -> str:
     return "\n".join(parts)
 
 
-def render_business_rules(allow: AllowList) -> str:
-    rules = [f"- {v.name}: {v.business_rules}" for v in allow.views.values() if v.business_rules]
+def render_business_rules(allow: AllowList, only: set[str] | None = None) -> str:
+    views = allow.views.values() if only is None else (allow.views[n] for n in allow.views if n in only)
+    rules = [f"- {v.name}: {v.business_rules}" for v in views if v.business_rules]
     return "\n".join(rules) if rules else "- (none)"

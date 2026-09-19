@@ -62,7 +62,7 @@ class OpenAITransport:
             timeout=settings.llm_timeout_seconds,
             max_retries=0,  # retries are ours, so they are observable
         )
-        # gateway-specific knobs (e.g. OpenRouter's {"reasoning": {"enabled": false}}) travel as extra body
+        # gateway-specific knobs travel as extra body
         self._extra_body: dict[str, Any] = json.loads(settings.llm_extra_body_json or "{}")
 
     async def parse(self, **kwargs: Any) -> ChatCompletion:

@@ -40,6 +40,7 @@ class ScriptedTransport(_FakeMarker):
         screen_block: str | None = None,
         guard: dict[str, Any] | None = None,
         grouping: dict[str, Any] | None = None,
+        table_select: dict[str, Any] | None = None,
         raise_exc: Exception | None = None,
     ):
         self.steps = list(steps)
@@ -47,6 +48,7 @@ class ScriptedTransport(_FakeMarker):
         self.screen_block = screen_block
         self.guard = guard or {"compliant": True, "repaired_sql": None, "reason": "ok"}
         self.grouping = grouping
+        self.table_select = table_select
         self.raise_exc = raise_exc
         self.calls: list[dict[str, Any]] = []
 
@@ -71,6 +73,8 @@ class ScriptedTransport(_FakeMarker):
                 payload = self.guard
             elif name == "GroupingProposal":
                 payload = self.grouping or {"groups": [], "rationale": ""}
+            elif name == "TableSelection":
+                payload = self.table_select or {"views": [], "reason": "scripted: no selection"}
             else:
                 raise AssertionError(f"unexpected structured stage {name}")
             parsed = response_format.model_validate(payload)

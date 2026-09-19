@@ -51,7 +51,7 @@ async def test_happy_path_produces_chart_narrative_and_trace(login, scripted):
     assert ":lens_scope_region_id" in chart["sql_text"]  # stored SQL is scope-agnostic
     assert "<chart 1>" in turn["answer_markdown"]
     assert turn["chart_order"] == [1]
-    assert turn["llm_calls"] == 5  # screen + guard + agent×3... (sql, python, final) + narrative
+    assert turn["llm_calls"] == 6  # screen + table_select + guard + agent×3... (sql, python, final) + narrative
     assert turn["stage_timings"]["gen"] >= 0 and "sql" in turn["stage_timings"]
     assert turn["trace_id"] and turn["prompt_version_id"].startswith("agent_system@v3#")
     assert turn["cost_usd"] is not None
@@ -63,13 +63,31 @@ async def test_happy_path_produces_chart_narrative_and_trace(login, scripted):
     assert len(turns) == 1 and len(turns[0]["charts"]) == 1
 
 
+async def test_table_selection_narrows_the_rendered_schema_but_not_enforcement(login, scripted):
+    t = scripted(
+        steps=happy_path_script(), table_select={"views": ["v_orders"], "reason": "only orders needed"}
+    )
+    a = await login("analyst@lens.demo")
+    sid = await _session(a)
+    r = await a.post("/chat", json={"session_id": sid, "message": "burn vs milestones"})
+    assert r.status_code == 200, r.text
+    # the agent's system prompt omits non-selected views' schema block
+    agent_call = next(c for c in t.calls if c.get("tools"))
+    system_msg = agent_call["messages"][0]["content"]
+    assert "VIEW v_orders" in system_msg
+    assert "VIEW v_products" not in system_msg
+    # the run_sql step in the script queries v_orders, which is still guard-checked and executes fine —
+    # selection never narrowed the allow-list used for enforcement
+    assert r.json()["status"] == "ok"
+
+
 async def test_llm_call_count_is_exact(login, scripted):
     scripted(steps=happy_path_script())
     a = await login("analyst@lens.demo")
     sid = await _session(a)
     r = await a.post("/chat", json={"session_id": sid, "message": "burn vs milestones"})
-    # screen(1) + guard on the one SQL(1) + agent steps(3) + narrative(1)
-    assert r.json()["llm_calls"] == 6 or r.json()["llm_calls"] == 5
+    # screen(1) + table_select(1) + guard on the one SQL(0 or 1, parser-mode vs llm-mode) + agent steps(3) + narrative(1)
+    assert r.json()["llm_calls"] == 7 or r.json()["llm_calls"] == 6
 
 
 async def test_sql_error_becomes_self_correction(login, scripted):

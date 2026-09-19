@@ -13,6 +13,7 @@ class Stage(StrEnum):
     guard = "guard"
     narrative = "narrative"
     grouping = "grouping"
+    table_select = "table_select"
 
 
 def models_for(settings: Settings, stage: Stage) -> list[str]:
@@ -22,6 +23,7 @@ def models_for(settings: Settings, stage: Stage) -> list[str]:
         Stage.guard: settings.llm_model_guard,
         Stage.narrative: settings.llm_model_narrative,
         Stage.grouping: settings.llm_model_grouping,
+        Stage.table_select: settings.llm_model_table_select,
     }[stage]
     chain = [primary]
     for m in settings.fallback_models:
@@ -32,6 +34,6 @@ def models_for(settings: Settings, stage: Stage) -> list[str]:
 
 def temperature_for(settings: Settings, stage: Stage) -> float:
     # anything that becomes code or a verdict is deterministic
-    if stage in (Stage.agent, Stage.guard, Stage.screen, Stage.grouping):
+    if stage in (Stage.agent, Stage.guard, Stage.screen, Stage.grouping, Stage.table_select):
         return settings.llm_temperature_code
     return settings.llm_temperature_narrative

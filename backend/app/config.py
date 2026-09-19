@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     llm_model_guard: str = "gpt-4o-mini"
     llm_model_narrative: str = "gpt-4o-mini"
     llm_model_grouping: str = "gpt-4o-mini"
+    llm_model_table_select: str = "gpt-4o-mini"
     llm_fallback_models: str = "gpt-4o-mini"
     llm_temperature_code: float = 0.0
     llm_temperature_narrative: float = 0.2

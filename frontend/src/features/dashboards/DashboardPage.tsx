@@ -90,7 +90,7 @@ function GroupView({ d, g, canEdit, m, refreshes, onRefresh, onAddTile }: {
         )}
       </div>
       {!g.is_collapsed && (
-        <Grid className="layout" layout={layout} cols={12} rowHeight={80} margin={[12, 12]} draggableHandle=".tile-head" isDraggable={canEdit} isResizable={canEdit} onDragStop={onLayoutChange} onResizeStop={onLayoutChange} compactType="vertical">
+        <Grid className="layout" layout={layout} cols={12} rowHeight={80} margin={[12, 12]} draggableHandle=".tile-head" draggableCancel=".tile-head button" isDraggable={canEdit} isResizable={canEdit} onDragStop={onLayoutChange} onResizeStop={onLayoutChange} compactType="vertical">
           {g.tiles.map((t) => (
             <div key={t.id}>
               <TileView t={t} canEdit={canEdit} m={m} refresh={refreshes[t.id]} onRefresh={() => onRefresh(t.id)} otherGroups={otherGroups} />

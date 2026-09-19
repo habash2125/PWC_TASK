@@ -6,11 +6,12 @@ and the path to production.
 
 ## 1. The boundary: generate once, execute forever
 
-There are exactly five places where a model is called, and each one is fenced by code on both sides:
+There are exactly six places where a model is called, and each one is fenced by code on both sides:
 
 | Stage | What the model does | What code does before | What code does after |
 |---|---|---|---|
 | **Screen** (`prompt_injection.py`) | classifies the question (`allow`/`block`, category) with a strict schema | a deterministic pre-screen catches blatant injection/DDL with no model call | a `block` ends the turn with a `guard_event`; the question is still wrapped as data afterwards |
+| **Table selection** (`table_selector.py`) | picks the views likely relevant to the question from a lightweight catalog (name, description, column names) plus a deterministic join-graph hint | context assembly has already loaded the full allow-list | the pick only narrows what the agent prompt renders into the schema-context block; on any failure or an empty/invalid answer it fails OPEN to the full schema — it never narrows the allow-list the guard or scope binding see |
 | **Agent** (`agent_loop.py`) | writes SQL and Python through two tools | assembles schema, rules and the scope instruction as delimited data blocks; forces a tool call on the first step | every `run_sql` passes the guard, every `run_python` runs in the sandbox; an answer with no query behind it is refused |
 | **Guard verifier** (`sql_guard.py`) | judges scope-predicate placement (rule 5) | rules 1–4 have already blocked anything non-SELECT, multi-statement, off-allow-list or uncapped | the parser's verdict is recorded as shadow; deterministic code **repairs and binds the predicate regardless** — the model can veto, never widen |
 | **Narrative** (`answer_phrasing.py`) | phrases findings, receives chart *titles* only | | anchors are resolved positionally (nothing dropped), an outbound filter neutralises instruction-like text that came in through data |
@@ -211,6 +212,15 @@ Two smaller decisions worth recording: the injection screen runs a deterministic
 attacks cost no model call (the adversarial fixtures assert this); and the agent loop refuses an answer that
 has no query behind it — a live evaluation with a free model showed it confidently inventing figures, which is
 exactly the failure a data product cannot ship.
+
+A third: table selection (`table_selector.py`) exists so the schema-context prompt stays small as the view
+catalog grows past today's ten. It is a *soft* selection — no hard top-N cap, the model is told to include a
+view whenever it might be needed — and the join hints it's given are computed deterministically from columns
+shared between views (any two views sharing an `_id`-suffixed column, excluding the row-level scope column),
+not hand-authored, so the mechanism scales to more tables without upkeep. It is explicitly a cost
+optimization, never a security boundary: on any failure, or an answer with no view names that match the
+allow-list, it fails OPEN to the full schema, and the `AllowList` the guard and scope binding enforce against
+is never narrowed — only what gets rendered into the agent's prompt is.
 
 ### 4.1 Read-only enforcement without database roles
 SQLite has no roles, so the "SELECT on `v_*` and nothing else" guarantee is rebuilt from three primitives,

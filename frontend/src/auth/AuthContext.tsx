@@ -12,6 +12,9 @@ interface AuthState {
 
 const Ctx = createContext<AuthState | null>(null);
 
+// e-mails copy-pasted from docs often carry zero-width spaces / BOMs that EmailStr rejects with a 422
+const cleanEmail = (email: string) => email.replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Principal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,7 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadMe]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const body = await api<{ access_token: string }>("/auth/login", { method: "POST", body: { email, password } });
+    const body = await api<{ access_token: string }>("/auth/login", {
+      method: "POST",
+      body: { email: cleanEmail(email), password },
+    });
     setAccessToken(body.access_token);
     await loadMe();
   }, [loadMe]);
@@ -50,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = useCallback(async (email: string, password: string, fullName?: string) => {
     const body = await api<{ access_token: string }>("/auth/signup", {
       method: "POST",
-      body: { email, password, full_name: fullName || null },
+      body: { email: cleanEmail(email), password, full_name: fullName || null },
     });
     setAccessToken(body.access_token);
     await loadMe();

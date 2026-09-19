@@ -40,26 +40,38 @@ First build takes a few minutes (plotly is large); subsequent starts are seconds
 Without an LLM key everything except *asking questions* works: sign in, browse, create dashboards, refresh
 tiles. `/api/v1/health/ready` reports `provider_configured: false`.
 
-### Using OpenRouter (or any OpenAI-compatible gateway)
+### Using another OpenAI-compatible gateway
 
 ```
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL_AGENT=openai/gpt-4o
-LLM_MODEL_SCREEN=openai/gpt-4o-mini        # also GUARD, NARRATIVE, GROUPING
-LLM_FALLBACK_MODELS=openai/gpt-4o-mini
-LLM_EXTRA_BODY_JSON={"reasoning":{"enabled":false}}   # for "thinking" models that otherwise spend max_tokens on reasoning
+LLM_BASE_URL=https://your-gateway.example.com/v1
+LLM_MODEL_AGENT=gpt-4o
+LLM_MODEL_SCREEN=gpt-4o-mini        # also GUARD, NARRATIVE, GROUPING
+LLM_FALLBACK_MODELS=gpt-4o-mini
+LLM_EXTRA_BODY_JSON={}              # gateway-specific knobs merged into every request body
 ```
 
 The model per pipeline stage, the fallback chain and the pricing table are configuration, not code.
 
 ## Seeded users
 
-| E-mail | Password (from `.env.example`) | Role | Data scope (`region_id`) |
-|---|---|---|---|
-| `admin@lens.demo` | `Admin!Lens2024` | admin | all regions |
-| `analyst@lens.demo` | `Analyst!Lens2024` | analyst | all regions |
-| `analyst2@lens.demo` | `Analyst2!Lens2024` | analyst | Eastern + Western (1, 2) |
-| `partner@lens.demo` | `Partner!Lens2024` | viewer | Eastern only (1) |
+Copy credentials from this block (copying from the rendered table below can pick up invisible zero-width
+characters around the e-mail, which the login endpoint rejects with a 422):
+
+```text
+admin@lens.demo      Admin!Lens2024
+analyst@lens.demo    Analyst!Lens2024
+analyst2@lens.demo   Analyst2!Lens2024
+partner@lens.demo    Partner!Lens2024
+```
+
+| E-mail             | Role    | Data scope (`region_id`) |
+| ------------------ | ------- | -------------------------- |
+| admin@lens.demo    | admin   | all regions                |
+| analyst@lens.demo  | analyst | all regions                |
+| analyst2@lens.demo | analyst | Eastern + Western (1, 2)   |
+| partner@lens.demo  | viewer  | Eastern only (1)           |
+
+Passwords come from `.env.example` (`SEED_*_PASSWORD`).
 
 `analyst2` and `partner` exist so that the scope demonstration (step 6 below) needs no database edits.
 Public sign-up is intentionally absent: `POST /auth/register` is admin-only.
@@ -67,6 +79,7 @@ Public sign-up is intentionally absent: `POST /auth/register` is admin-only.
 ## Demo script
 
 1. Sign in as **analyst**. Ask three questions of rising difficulty and expand the SQL panel on each:
+
    * *How has monthly revenue trended over the last three years?* — a time series from `v_monthly_sales`
    * *Which shipper delivers fastest, and how often are orders shipped after the required date?* — business
      rules (`days_to_ship`, `shipped_late`) from the catalogue, not from the model
@@ -108,43 +121,43 @@ LENS_LIVE_EVAL=1 GUARD_ENFORCER=llm pytest -q tests/eval/test_golden.py -k live 
 The suite runs against the **real** guard, sandbox, auth and databases; only the model provider is scripted
 (`tests/fakes.py`). Security tests never mock the thing under test.
 
-| Suite | What it proves |
-|---|---|
-| `tests/functional/test_analytics_readonly.py` | the analytics connection reads the allow-listed views, is denied on all 10 base tables, `sqlite_master`, PRAGMA, ATTACH and un-listed views, cannot write, and is interrupted at the statement timeout |
-| `tests/functional/test_auth.py` | Argon2id, rotating refresh with reuse detection, lockout, `alg=none` and wrong-key rejection, role read from the row not the token |
-| `tests/functional/test_dashboards.py` | chart↔dashboard separation, 409 on delete-in-use, 404 (not 403) for non-granted users on all 16 dashboard routes, tile↔group invariant, single owner |
-| `tests/adversarial/test_sql_guard.py` | 51 hostile statements blocked (incl. PRAGMA, ATTACH, `sqlite_master`, `load_extension`), 9 misplaced-predicate statements repaired (never widened), 17 legitimate ones pass; zero executions without a bound scope |
-| `tests/functional/test_chat_pipeline.py` | the turn lifecycle end to end with a scripted model: self-correction, guard events, loop guard, injection pre-screen, poisoned-row neutralisation, ungrounded answers refused, provider outage degrades honestly |
-| `tests/functional/test_refresh.py` | pin → place → refresh with the provider patched to raise; fewer rows for the narrower viewer; error state when the scope source fails; `invalid_query` when the view changed |
-| `tests/functional/test_ops.py` | one `trace_id` retrieves the full span tree; refresh traces have zero `llm.*` spans; usage accounting; allow-list admin; sensitive columns hidden |
-| `tests/functional/test_grouping.py` | model proposes → schema validates → completeness check → confirm → single-transaction apply |
-| `tests/eval/test_golden.py` | 20 fixture questions: reference SQL compiles under the guard and returns the expected shape (hermetic); live half measures ≥ 90 % runnable / ≥ 85 % matching |
-| `tests/unit/test_helpers.py` | placement, prompt hashing, effective-role arithmetic, SQL normalisation, figure capture limits, pre-screen/outbound filter, redaction |
+| Suite                                           | What it proves                                                                                                                                                                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/functional/test_analytics_readonly.py` | the analytics connection reads the allow-listed views, is denied on all 10 base tables,`sqlite_master`, PRAGMA, ATTACH and un-listed views, cannot write, and is interrupted at the statement timeout               |
+| `tests/functional/test_auth.py`               | Argon2id, rotating refresh with reuse detection, lockout,`alg=none` and wrong-key rejection, role read from the row not the token                                                                                   |
+| `tests/functional/test_dashboards.py`         | chart↔dashboard separation, 409 on delete-in-use, 404 (not 403) for non-granted users on all 16 dashboard routes, tile↔group invariant, single owner                                                                |
+| `tests/adversarial/test_sql_guard.py`         | 51 hostile statements blocked (incl. PRAGMA, ATTACH,`sqlite_master`, `load_extension`), 9 misplaced-predicate statements repaired (never widened), 17 legitimate ones pass; zero executions without a bound scope |
+| `tests/functional/test_chat_pipeline.py`      | the turn lifecycle end to end with a scripted model: self-correction, guard events, loop guard, injection pre-screen, poisoned-row neutralisation, ungrounded answers refused, provider outage degrades honestly      |
+| `tests/functional/test_refresh.py`            | pin → place → refresh with the provider patched to raise; fewer rows for the narrower viewer; error state when the scope source fails;`invalid_query` when the view changed                                       |
+| `tests/functional/test_ops.py`                | one`trace_id` retrieves the full span tree; refresh traces have zero `llm.*` spans; usage accounting; allow-list admin; sensitive columns hidden                                                                  |
+| `tests/functional/test_grouping.py`           | model proposes → schema validates → completeness check → confirm → single-transaction apply                                                                                                                       |
+| `tests/eval/test_golden.py`                   | 20 fixture questions: reference SQL compiles under the guard and returns the expected shape (hermetic); live half measures ≥ 90 % runnable / ≥ 85 % matching                                                        |
+| `tests/unit/test_helpers.py`                  | placement, prompt hashing, effective-role arithmetic, SQL normalisation, figure capture limits, pre-screen/outbound filter, redaction                                                                                 |
 
 ## Environment variables
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `APP_DB_*` | compose-local | Lens's own state (Postgres); the app role reads and writes app tables only |
-| `ANALYTICS_SQLITE_PATH` | `/app/data/analytics/northwind.db` | the analytics SQLite file: written by the seed, opened `mode=ro` by the API with a view-only authorizer (no roles in SQLite — see ARCHITECTURE §4.1) |
-| `REDIS_URL` | `redis://cache:6379/0` | rate limits, idempotency keys, 30 s query cache |
-| `JWT_ALGORITHM` / `JWT_SECRET` / `JWT_*_KEY_PATH` | HS256 | pinned by the verifier; RS256 with key files in production |
-| `ACCESS_TOKEN_TTL_MINUTES` / `REFRESH_TOKEN_TTL_DAYS` | 15 / 14 | short access token in memory; rotating refresh cookie |
-| `LOGIN_MAX_FAILURES` / `LOGIN_LOCKOUT_BASE_SECONDS` | 5 / 30 | exponential lockout |
-| `OPENAI_API_KEY` (or `LLM_API_KEY`), `LLM_BASE_URL` | — | native `openai` SDK; `LLM_API_KEY` overrides for any OpenAI-compatible endpoint |
-| `LLM_MODEL_{SCREEN,AGENT,GUARD,NARRATIVE,GROUPING}` | gpt-4o-mini / gpt-4o | model per stage |
-| `LLM_FALLBACK_MODELS` | gpt-4o-mini | ordered fallback chain |
-| `LLM_PRICING_JSON` | — | USD per 1M tokens per model, for cost accounting |
-| `LLM_EXTRA_BODY_JSON` | `{}` | gateway knobs merged into every request |
-| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `LLM_CIRCUIT_*` | 60 / 2 / 3, 60 s | per-call timeout, jittered retries, circuit breaker |
-| `GUARD_ENFORCER` | `llm` | `llm`: guard model enforces predicate placement, parser records a shadow verdict; `parser`: fully deterministic |
-| `SQL_MAX_ROWS`, `SQL_STATEMENT_TIMEOUT_MS` | 5000 / 8000 | row cap and statement timeout on every execution |
-| `TURN_MAX_STEPS`, `TURN_MAX_SQL_RETRIES`, `TURN_TIMEOUT_SECONDS`, `TURN_MAX_TOKENS` | 12 / 4 / 90 / 60000 | agent loop budgets |
-| `DAILY_TURN_CEILING`, `DAILY_TOKEN_CEILING`, `DAILY_COST_CEILING_USD` | 200 / 2M / 20 | per-user daily ceilings (429 when exceeded) |
-| `PY_EXEC_TIMEOUT_SECONDS`, `PY_EXEC_MEMORY_MB`, `PY_EXEC_CPU_SECONDS` | 20 / 768 / 15 | sandbox limits |
-| `REFRESH_CONCURRENCY`, `QUERY_CACHE_TTL_SECONDS` | 4 / 30 | dashboard refresh |
-| `CORS_ORIGIN`, `MAX_REQUEST_BYTES`, `RATE_LIMIT_*` | localhost:3000, 256 kB, 120/10/300 per minute | HTTP hardening |
-| `TRACE_RETENTION_DAYS`, `METRICS_ENABLED` | 30 / true | observability |
+| Variable                                                                                    | Default                                       | Purpose                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_DB_*`                                                                                | compose-local                                 | Lens's own state (Postgres); the app role reads and writes app tables only                                                                              |
+| `ANALYTICS_SQLITE_PATH`                                                                   | `/app/data/analytics/northwind.db`          | the analytics SQLite file: written by the seed, opened`mode=ro` by the API with a view-only authorizer (no roles in SQLite — see ARCHITECTURE §4.1) |
+| `REDIS_URL`                                                                               | `redis://cache:6379/0`                      | rate limits, idempotency keys, 30 s query cache                                                                                                         |
+| `JWT_ALGORITHM` / `JWT_SECRET` / `JWT_*_KEY_PATH`                                     | HS256                                         | pinned by the verifier; RS256 with key files in production                                                                                              |
+| `ACCESS_TOKEN_TTL_MINUTES` / `REFRESH_TOKEN_TTL_DAYS`                                   | 15 / 14                                       | short access token in memory; rotating refresh cookie                                                                                                   |
+| `LOGIN_MAX_FAILURES` / `LOGIN_LOCKOUT_BASE_SECONDS`                                     | 5 / 30                                        | exponential lockout                                                                                                                                     |
+| `OPENAI_API_KEY` (or `LLM_API_KEY`), `LLM_BASE_URL`                                   | —                                            | native`openai` SDK; `LLM_API_KEY` overrides for any OpenAI-compatible endpoint                                                                      |
+| `LLM_MODEL_{SCREEN,AGENT,GUARD,NARRATIVE,GROUPING}`                                       | gpt-4o-mini / gpt-4o                          | model per stage                                                                                                                                         |
+| `LLM_FALLBACK_MODELS`                                                                     | gpt-4o-mini                                   | ordered fallback chain                                                                                                                                  |
+| `LLM_PRICING_JSON`                                                                        | —                                            | USD per 1M tokens per model, for cost accounting                                                                                                        |
+| `LLM_EXTRA_BODY_JSON`                                                                     | `{}`                                        | gateway knobs merged into every request                                                                                                                 |
+| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `LLM_CIRCUIT_*`                             | 60 / 2 / 3, 60 s                              | per-call timeout, jittered retries, circuit breaker                                                                                                     |
+| `GUARD_ENFORCER`                                                                          | `llm`                                       | `llm`: guard model enforces predicate placement, parser records a shadow verdict; `parser`: fully deterministic                                     |
+| `SQL_MAX_ROWS`, `SQL_STATEMENT_TIMEOUT_MS`                                              | 5000 / 8000                                   | row cap and statement timeout on every execution                                                                                                        |
+| `TURN_MAX_STEPS`, `TURN_MAX_SQL_RETRIES`, `TURN_TIMEOUT_SECONDS`, `TURN_MAX_TOKENS` | 12 / 4 / 90 / 60000                           | agent loop budgets                                                                                                                                      |
+| `DAILY_TURN_CEILING`, `DAILY_TOKEN_CEILING`, `DAILY_COST_CEILING_USD`                 | 200 / 2M / 20                                 | per-user daily ceilings (429 when exceeded)                                                                                                             |
+| `PY_EXEC_TIMEOUT_SECONDS`, `PY_EXEC_MEMORY_MB`, `PY_EXEC_CPU_SECONDS`                 | 20 / 768 / 15                                 | sandbox limits                                                                                                                                          |
+| `REFRESH_CONCURRENCY`, `QUERY_CACHE_TTL_SECONDS`                                        | 4 / 30                                        | dashboard refresh                                                                                                                                       |
+| `CORS_ORIGIN`, `MAX_REQUEST_BYTES`, `RATE_LIMIT_*`                                    | localhost:3000, 256 kB, 120/10/300 per minute | HTTP hardening                                                                                                                                          |
+| `TRACE_RETENTION_DAYS`, `METRICS_ENABLED`                                               | 30 / true                                     | observability                                                                                                                                           |
 
 ## Repository layout
 

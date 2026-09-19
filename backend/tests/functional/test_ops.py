@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.core.llm.client import get_llm, install_transport
+from app.db.seed.analytics_catalog import DATASET
 from tests.fakes import ScriptedTransport, happy_path_script
 
 
@@ -126,11 +127,15 @@ async def test_allow_list_admin_and_sensitive_columns_hidden(login, seeded):
         "/sources", json={"name": "x", "dsn_secret_ref": "postgresql://u:p@h/db", "read_only_role": "r"}
     )
     assert r.status_code == 422  # a DSN is not a secret ref
+    partner_id = str(seeded["users"]["partner@lens.demo"])
+    r = await admin.put(f"/sources/{seeded['source_id']}/scopes", json={"user_id": partner_id, "scope_values": [1, 2]})
+    assert r.status_code == 200 and r.json()["scope_values"] == [1, 2]
+    # restore the seeded scope: the suite runs against the shared dev DB and the demo partner must stay single-region
     r = await admin.put(
         f"/sources/{seeded['source_id']}/scopes",
-        json={"user_id": str(seeded["users"]["partner@lens.demo"]), "scope_values": [1, 2]},
+        json={"user_id": partner_id, "scope_values": list(DATASET.demo_scope_single)},
     )
-    assert r.status_code == 200 and r.json()["scope_values"] == [1, 2]
+    assert r.status_code == 200 and r.json()["scope_values"] == list(DATASET.demo_scope_single)
 
 
 async def test_refresher_can_read_their_own_refresh_trace(login, scripted):
