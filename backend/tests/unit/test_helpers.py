@@ -49,8 +49,8 @@ def test_effective_role_is_min_of_ceiling_and_grant(role, grant, expected):
 
 
 def test_sql_hash_ignores_formatting_but_not_semantics():
-    a = "select  a,b FROM v_x WHERE client_id IN (:lens_scope_client_id)"
-    b = "SELECT a, b\nFROM v_x\nWHERE client_id IN (:lens_scope_client_id)"
+    a = "select  a,b FROM v_x WHERE region_id IN (:lens_scope_region_id)"
+    b = "SELECT a, b\nFROM v_x\nWHERE region_id IN (:lens_scope_region_id)"
     assert sql_hash(a) == sql_hash(b)
     assert sql_hash(a) != sql_hash(a.replace("a, b", "a, c") if "a, b" in a else a.replace("a,b", "a,c"))
     assert "SELECT" in normalise_sql(a)

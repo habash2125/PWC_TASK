@@ -77,3 +77,12 @@ class FeedbackOut(Out):
     turn_id: uuid.UUID
     rating: int
     trace_id: str
+
+
+class SuggestionsOut(Out):
+    """What the UI shows on an empty session: comes from the analytics catalogue, not the frontend."""
+
+    dataset: str
+    headline: str
+    scope_label: str
+    questions: list[str]

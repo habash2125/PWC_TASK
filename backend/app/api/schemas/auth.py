@@ -21,6 +21,12 @@ class RegisterRequest(Strict):
     role: UserRole = UserRole.viewer
 
 
+class SignupRequest(Strict):
+    email: EmailStr = Field(max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    full_name: str | None = Field(default=None, max_length=120)
+
+
 class TokenResponse(Out):
     access_token: str
     token_type: str = "bearer"

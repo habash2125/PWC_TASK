@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar
@@ -36,7 +37,7 @@ from app.config import Settings
 from app.core.llm.budgets import Usage, price
 from app.core.llm.model_selector import Stage, models_for, temperature_for
 from app.core.llm.provider_health import ProviderHealth
-from app.observability import metrics
+from app.observability import langsmith_tracing, metrics
 from app.observability.request_context import get_llm_counter
 from app.observability.tracing import stage_span
 
@@ -165,9 +166,16 @@ class LlmClient:
         last: Exception | None = None
         for attempt in range(1, attempts + 1):
             started = time.perf_counter()
-            with stage_span(
-                f"llm.{stage.value}", model=model, attempt=attempt, prompt_version_id=prompt_version_id
-            ) as span:
+            with (
+                stage_span(
+                    f"llm.{stage.value}", model=model, attempt=attempt, prompt_version_id=prompt_version_id
+                ) as span,
+                langsmith_tracing.llm_run(
+                    f"llm.{stage.value}",
+                    inputs={"messages": messages},
+                    metadata={"model": model, "attempt": attempt, "prompt_version_id": prompt_version_id},
+                ) as ls_run,
+            ):
                 try:
                     completion = await asyncio.wait_for(
                         self.transport.parse(**kwargs), timeout=self.settings.llm_timeout_seconds + 5
@@ -184,9 +192,12 @@ class LlmClient:
                     last = exc
                     metrics.llm_calls.labels(stage.value, model, "error").inc()
                     span.set_attribute("error", type(exc).__name__)
+                    ls_run.set_attribute("error", type(exc).__name__)
                     if attempt < attempts:
                         metrics.llm_retries.labels(model).inc()
                         delay = min(8.0, (0.5 * 2 ** (attempt - 1))) * (0.5 + random.random())
+                        # a 429 says how long the window is; sleeping less than that just burns the retry
+                        delay = max(delay, _retry_after_seconds(exc))
                         log.warning(
                             "llm call failed, retrying",
                             extra={
@@ -248,6 +259,11 @@ class LlmClient:
                 span.set_attribute("cost_usd", cost)
                 span.set_attribute("finish_reason", choice.finish_reason or "")
                 span.set_attribute("priced", model in self.settings.pricing)
+                ls_run.set_attribute("input_tokens", in_tok)
+                ls_run.set_attribute("output_tokens", out_tok)
+                ls_run.set_attribute("cost_usd", cost)
+                ls_run.set_attribute("finish_reason", choice.finish_reason or "")
+                ls_run.set_attribute("output_text", choice.message.content or "")
                 log.info(
                     "llm call",
                     extra={
@@ -276,6 +292,27 @@ class LlmClient:
                     finish_reason=choice.finish_reason,
                 )
         raise _RetryableFailure(last or RuntimeError("no attempts"))
+
+
+_RETRY_AFTER_TEXT = re.compile(r"try again in (\d+(?:\.\d+)?)\s*(ms|s)\b", re.IGNORECASE)
+
+
+def _retry_after_seconds(exc: BaseException, cap: float = 15.0) -> float:
+    """Provider-suggested wait for a rate limit: the retry-after headers, else the number in the message."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    try:
+        if headers.get("retry-after-ms"):
+            return min(cap, float(headers["retry-after-ms"]) / 1000)
+        if headers.get("retry-after"):
+            return min(cap, float(headers["retry-after"]))
+    except (TypeError, ValueError):
+        pass
+    m = _RETRY_AFTER_TEXT.search(str(exc))
+    if m:
+        value = float(m.group(1))
+        return min(cap, value / 1000 if m.group(2).lower() == "ms" else value)
+    return 0.0
 
 
 class _RetryableFailure(Exception):

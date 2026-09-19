@@ -50,7 +50,7 @@ export function DashboardPage() {
           {isOwner && <Button variant="danger" onClick={() => { if (confirm("Delete this dashboard? Charts are kept in the library.")) m.remove.mutate(undefined, { onSuccess: () => nav("/dashboards") }); }}>Delete</Button>}
         </div>
       </div>
-      <ErrorBox error={m.suggest.error ?? m.refreshAll.error ?? m.addGroup.error} />
+      <ErrorBox error={m.suggest.error ?? m.refreshAll.error ?? m.addGroup.error ?? m.deleteTile.error ?? m.deleteGroup.error ?? m.remove.error} />
       {d.groups.map((g) => (
         <GroupView key={g.id} d={d} g={g} canEdit={!!canEdit} m={m} refreshes={refreshes} onRefresh={refreshOne} onAddTile={() => setAddTile(g)} />
       ))}
@@ -116,7 +116,7 @@ function TileView({ t, canEdit, m, refresh, onRefresh, otherGroups }: {
         <div className="row" style={{ flexWrap: "nowrap" }}>
           <button className="btn btn-ghost btn-sm" title="Refresh (zero model calls)" onClick={onRefresh}>⟳</button>
           <button className="btn btn-ghost btn-sm" title="Data & SQL" onClick={() => setShowData(true)}>⋯</button>
-          {canEdit && <button className="btn btn-ghost btn-sm" title="Remove tile (chart stays in library)" onClick={() => m.deleteTile.mutate(t.id)}>✕</button>}
+          {canEdit && <button className="btn btn-ghost btn-sm" title="Remove tile (chart stays in library)" disabled={m.deleteTile.isPending} onClick={() => m.deleteTile.mutate(t.id)}>✕</button>}
         </div>
       </div>
       <div className="tile-body">

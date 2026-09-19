@@ -6,6 +6,7 @@ interface AuthState {
   user: Principal | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, fullName?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -46,6 +47,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadMe();
   }, [loadMe]);
 
+  const signup = useCallback(async (email: string, password: string, fullName?: string) => {
+    const body = await api<{ access_token: string }>("/auth/signup", {
+      method: "POST",
+      body: { email, password, full_name: fullName || null },
+    });
+    setAccessToken(body.access_token);
+    await loadMe();
+  }, [loadMe]);
+
   const logout = useCallback(async () => {
     try {
       await api("/auth/logout", { method: "POST" });
@@ -55,7 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ user, loading, login, logout }), [user, loading, login, logout]);
+  const value = useMemo(
+    () => ({ user, loading, login, signup, logout }),
+    [user, loading, login, signup, logout],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

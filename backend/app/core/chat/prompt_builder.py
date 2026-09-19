@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from app.core.security.access_scope import ScopePredicate, scope_prompt_instruction
 from app.core.security.prompt_injection import wrap_data
 from app.core.sql.schema_context import AllowList, render_business_rules, render_schema_context
+from app.db.seed.analytics_catalog import DATASET
 from app.prompts import get_prompt
 
 MAX_HISTORY_TURNS = 6
@@ -41,7 +42,7 @@ def build_messages(
             ),
         ]
     )
-    messages: list[dict] = [{"role": "system", "content": prompt.text + "\n\n" + context}]
+    messages: list[dict] = [{"role": "system", "content": prompt.render(domain=DATASET.domain) + "\n\n" + context}]
     for prior in history[-MAX_HISTORY_TURNS:]:
         messages.append({"role": "user", "content": wrap_data("question", prior.question[:MAX_HISTORY_CHARS])})
         messages.append({"role": "assistant", "content": prior.findings[:MAX_HISTORY_CHARS] or "(no findings)"})

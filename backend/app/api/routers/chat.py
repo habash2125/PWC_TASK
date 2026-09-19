@@ -1,4 +1,4 @@
-"""POST /chat — one conversational turn; POST /turns/{id}/feedback."""
+"""POST /chat — one conversational turn; GET /chat/suggestions; POST /turns/{id}/feedback."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from fastapi import APIRouter, Depends, Request
 from app.api.deps import DbSession, SettingsDep, rate_limit, request_meta, require_role
 from app.api.errors import NotFoundError
 from app.api.routers.sessions import turn_out
-from app.api.schemas.chat import ChatRequest, FeedbackOut, FeedbackRequest, TurnOut
+from app.api.schemas.chat import ChatRequest, FeedbackOut, FeedbackRequest, SuggestionsOut, TurnOut
 from app.core.auth.rbac import Principal
 from app.core.chat.pipeline import run_turn
 from app.db.models import UserRole
 from app.db.repos.chat import ChatRepo
+from app.db.seed.analytics_catalog import DATASET
 from app.observability.request_context import get_llm_counter
 
 router = APIRouter(tags=["chat"])
@@ -32,6 +33,17 @@ async def chat(
     result = await run_turn(session, settings, principal, chat_session, body.message, meta=request_meta(request))
     await session.refresh(result.turn, attribute_names=["charts"])
     return turn_out(result.turn, result.guard_events, result.chart_order, llm_calls=get_llm_counter().calls)
+
+
+@router.get("/chat/suggestions", response_model=SuggestionsOut)
+async def suggestions(principal: Analyst) -> SuggestionsOut:
+    """Starter questions and wording for the empty-session panel, from the catalogue."""
+    return SuggestionsOut(
+        dataset=DATASET.name,
+        headline=DATASET.headline,
+        scope_label=DATASET.scope_label,
+        questions=list(DATASET.suggested_questions),
+    )
 
 
 @router.post("/turns/{turn_id}/feedback", response_model=FeedbackOut, status_code=201)

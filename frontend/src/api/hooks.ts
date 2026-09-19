@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, idempotencyKey } from "./client";
 import type {
   Chart, ChartSummary, ChartUsage, Dashboard, DashboardRefresh, DashboardRole, DashboardSummary, Grant, GroupingProposal,
-  Session, TenantUser, Tile, TileRefresh, Trace, Turn, UsageRow,
+  Session, Suggestions, TenantUser, Tile, TileRefresh, Trace, Turn, UsageRow,
 } from "@/types/api";
 
 // ── chat ─────────────────────────────────────────────────────────────────────
 export const useSessions = () => useQuery({ queryKey: ["sessions"], queryFn: () => api<Session[]>("/sessions") });
+export const useSuggestions = () =>
+  useQuery({ queryKey: ["suggestions"], queryFn: () => api<Suggestions>("/chat/suggestions"), staleTime: Infinity });
 export const useTurns = (sessionId: string | null) =>
   useQuery({ queryKey: ["turns", sessionId], queryFn: () => api<Turn[]>(`/sessions/${sessionId}/turns`), enabled: !!sessionId });
 

@@ -26,6 +26,7 @@ from app.core.llm.model_selector import Stage
 from app.core.security.prompt_injection import wrap_data
 from app.db.models import DashboardGroup, DashboardTile
 from app.db.repos.dashboards import DEFAULT_GROUP_TITLE, DashboardRepo
+from app.db.seed.analytics_catalog import DATASET
 from app.prompts import get_prompt
 
 
@@ -104,7 +105,10 @@ async def suggest_grouping(session: AsyncSession, ctx: DashboardContext) -> Grou
     )
     resp = await get_llm().complete(
         Stage.grouping,
-        [{"role": "system", "content": prompt.text}, {"role": "user", "content": wrap_data("tiles", listing)}],
+        [
+            {"role": "system", "content": prompt.render(group_examples=DATASET.group_examples)},
+            {"role": "user", "content": wrap_data("tiles", listing)},
+        ],
         response_model=GroupingProposal,
         max_tokens=2500,
         prompt_version_id=prompt.version_id,

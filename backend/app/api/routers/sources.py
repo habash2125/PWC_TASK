@@ -14,6 +14,7 @@ from app.api.deps import CurrentPrincipal, DbSession, request_meta, require_role
 from app.api.errors import ConflictError, NotFoundError, ValidationFailed
 from app.api.schemas import Out, Strict
 from app.core.auth.rbac import Principal
+from app.core.security.access_scope import DEFAULT_SCOPE_KEY
 from app.db.models import DataSource, DataSourceView, UserRole
 from app.db.repos.audit import AuditRepo
 from app.db.repos.users import UserRepo
@@ -28,7 +29,7 @@ class SourceCreate(Strict):
         min_length=1, max_length=120, pattern=r"^[A-Z][A-Z0-9_]*$"
     )  # an env var NAME, never a DSN
     read_only_role: str = Field(min_length=1, max_length=120)
-    dialect: str = Field(default="postgresql", max_length=40)
+    dialect: str = Field(default="sqlite", max_length=40)
 
 
 class SourceOut(Out):
@@ -62,7 +63,7 @@ class ViewOut(Out):
 
 class ScopeAssign(Strict):
     user_id: uuid.UUID
-    scope_key: str = Field(default="client_id", max_length=80)
+    scope_key: str = Field(default=DEFAULT_SCOPE_KEY, max_length=80)
     scope_values: list[int | str] = Field(max_length=500)
 
 

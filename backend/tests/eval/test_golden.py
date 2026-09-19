@@ -1,6 +1,6 @@
 """Golden-set evaluation.
 
-* ``test_golden_reference`` — hermetic: reference SQL through the real guard and the read-only role.
+* ``test_golden_reference`` — hermetic: reference SQL through the real guard and the read-only connection.
 * ``test_adversarial_prompts`` — hermetic where the pre-screen catches it; the model screen otherwise (live only).
 * ``test_golden_live`` — generates SQL from the question with the configured provider (skipped without a key),
   and asserts the acceptance criteria: ≥ 90 % runnable first attempt, ≥ 85 % matching the reference.
@@ -18,9 +18,10 @@ from app.core.security.prompt_injection import prescreen
 from app.core.sql.schema_context import load_allow_list
 from app.core.sql.sql_guard import SqlGuard
 from app.db.analytics_pool import execute_readonly
+from app.db.seed.analytics_catalog import SCOPE_KEY
 from tests.eval.golden_set import ADVERSARIAL_PROMPTS, GOLDEN
 
-WIDE = ScopePredicate("client_id", (), unrestricted=True)
+WIDE = ScopePredicate(SCOPE_KEY, (), unrestricted=True)
 LIVE = os.environ.get("LENS_LIVE_EVAL") == "1"
 
 
@@ -38,7 +39,9 @@ async def test_golden_reference(case, allow, settings):
     result = await guard.check(case["reference_sql"], allow=allow, scope=WIDE, mode="refresh")
     assert result.verdict == "allowed", f"{case['id']}: {result.reason}"
     check = find_scoped_references(parse_one(result.sql_canonical), allow.scope_columns)
-    assert check.ok and check.references, "every reference SQL must touch a scoped view with the predicate in place"
+    assert check.ok
+    if not case.get("unscoped"):
+        assert check.references, "every scoped reference SQL must touch a scoped view with the predicate in place"
     rows = await execute_readonly(result.sql_bound, statement_timeout_ms=8000, max_rows=5000)
     assert case["key_column"] in rows.columns, (case["id"], rows.columns)
     assert rows.row_count >= case["min_rows"], (case["id"], rows.row_count)

@@ -131,6 +131,45 @@ async def test_role_claim_in_token_cannot_escalate(api, settings, seeded):
     assert r.status_code == 200 and r.json()["role"] == "viewer"
 
 
+async def test_signup_creates_viewer_with_no_scope_and_logs_in(api, seeded):
+    import uuid
+
+    email = f"new-{uuid.uuid4().hex[:8]}@lens.demo"
+    r = await api.post("/auth/signup", json={"email": email, "password": "LongEnoughPassw0rd!", "full_name": "New User"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["token_type"] == "bearer" and body["access_token"]
+    cookie_header = r.headers.get("set-cookie", "")
+    assert REFRESH_COOKIE in cookie_header and "HttpOnly" in cookie_header
+
+    api.token = body["access_token"]
+    me = (await api.get("/auth/me")).json()
+    assert me["email"] == email and me["role"] == "viewer" and me["full_name"] == "New User"
+    assert me["scopes"] == []  # fail-closed: no scope row means no data access until an admin grants one
+
+
+async def test_signup_rejects_duplicate_email(api, seeded):
+    r = await api.post("/auth/signup", json={"email": "analyst@lens.demo", "password": "LongEnoughPassw0rd!"})
+    assert r.status_code == 409
+
+
+async def test_signup_rejects_short_password(api, seeded):
+    import uuid
+
+    r = await api.post("/auth/signup", json={"email": f"short-{uuid.uuid4().hex[:8]}@lens.demo", "password": "short"})
+    assert r.status_code == 422
+
+
+async def test_signup_cannot_set_role_or_other_fields(api, seeded):
+    import uuid
+
+    email = f"noescal-{uuid.uuid4().hex[:8]}@lens.demo"
+    r = await api.post(
+        "/auth/signup", json={"email": email, "password": "LongEnoughPassw0rd!", "role": "admin", "is_admin": True}
+    )
+    assert r.status_code == 422  # Strict schema: extra fields are forbidden, so role can't be smuggled in
+
+
 async def test_register_requires_admin(login):
     import uuid
 

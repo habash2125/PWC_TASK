@@ -27,17 +27,23 @@ The invariant is visible in the code and asserted in tests: `llm_calls == 0` on 
 
 ## 2. Database design
 
-Two physically separate PostgreSQL databases with separate engines and credentials. No foreign key, join or
-transaction crosses them.
+Two physically separate databases with separate engines: PostgreSQL for Lens's own state, a SQLite file for the
+business data. No foreign key, join or transaction crosses them.
 
 * **app-db** — Lens's own state (`tenant`, `app_user`, `refresh_token`, `data_source`, `data_source_view`,
   `access_scope`, `chat_session`, `turn`, `turn_chart`, `saved_chart`, `dashboard`, `dashboard_group`,
   `dashboard_tile`, `dashboard_grant`, `tile_refresh`, `guard_event`, `trace_span`, `usage_counter`,
   `feedback`, `audit_log`). UUID primary keys, `TIMESTAMPTZ`, `tenant_id` on tenant-owned tables, one Alembic
   chain (`0001_initial`, `0002_render_code`).
-* **analytics-db** — the business data. Base tables are owned by `lens_analytics_owner` and used only by the
-  seed; the API connects as `lens_readonly`, which holds `SELECT` on the twelve `v_*` views and nothing else,
-  with `default_transaction_read_only = on` and a role-level `statement_timeout`. Raw SQL only — no ORM.
+* **analytics-db** — the business data: the Northwind for SQLite3 dataset (13 tables, 16k orders / 609k
+  order lines, upstream `northwind.db` + DDL-only `schema.sql` vendored under `db/seed/northwind/`, MIT),
+  copied to its runtime path by the seed — the only step that ever opens the file read-write. The seed adds
+  seven foreign-key indexes and creates the ten `v_*` views from `analytics_catalog.py` (written fact-table
+  first with `CROSS JOIN`, which SQLite honours as a join-order hint — without it the planner starts the
+  609k-row views from the smallest lookup table and takes ~8 s instead of <1 s); the API opens the file
+  `mode=ro` and reaches the views only (§4.1). Raw SQL only — no ORM. `analytics_catalog.py` is the single
+  dataset-specific file: views, scope key, the domain wording the prompts render, the UI's starter questions
+  (`GET /chat/suggestions`) and the demo users' scope values all come from it.
 
 ### 2.1 Chart ↔ dashboard separation
 
@@ -114,8 +120,11 @@ are visible to their owner and to anyone holding a grant on a dashboard that sho
 `access_scope` maps (user, data source, key) → allowed values, `["*"]` meaning unrestricted; **absence means no
 access**. The scope is fetched per request behind a `ScopeSource` interface (a database today, an
 authorisation service tomorrow), in parallel with schema assembly, with its own timeout and latency metric.
-The model is told to write `<alias>.client_id IN (:lens_scope_client_id)` inside every SELECT that reads a
-scoped view. Stored SQL therefore keeps the *structure* of the filter and none of its values; `bind_scope`
+The scope key is whatever the catalogue says the rows are partitioned on — `region_id`, the sales region of
+the employee who took the order, for this dataset — and the model is told to write
+`<alias>.region_id IN (:lens_scope_region_id)` inside every SELECT that reads a scoped view (the three
+reference views — products, customers, suppliers — carry no region and are unscoped). Stored SQL therefore
+keeps the *structure* of the filter and none of its values; `bind_scope`
 substitutes the executor's literals (or `TRUE` for unrestricted) immediately before execution. The verifier
 requires the predicate as a top-level AND conjunct of the reading SELECT's WHERE (or the ON clause of the
 INNER/LEFT JOIN that introduces the view) — a predicate under OR, in HAVING, or bolted onto an outer query that
@@ -128,13 +137,14 @@ rather than unscoped data.
 ### 3.4 SQL guard
 Every statement is parsed by `sqlglot` and must satisfy all of: one statement (comments stripped, no second
 root), read-only (`SELECT`/`WITH…SELECT` only; every DDL/DML/COPY/SET/CALL/DO/GRANT node, `FOR UPDATE`, `SELECT
-INTO`, table functions and a deny-list of functions such as `pg_sleep`, `pg_read_file`, `dblink`, `lo_import`
-are refused, with a raw-text belt-and-braces scan), allow-list resolution (every table is an enabled view or a
-CTE/derived alias defined in the same statement; a CTE named after a view cannot launder a base table; other
-schemas and `information_schema`/`pg_catalog` are refused), sensitive-column surface (columns flagged
-`sensitive` are excluded from the prompt, refused when referenced, and `SELECT *` on a view that has them is
-refused), a row cap (an outer `LIMIT` is added or clamped), the scope predicate (§3.3), and a statement timeout
-set on the connection. The corpus has zero false negatives and zero false positives.
+INTO`, `PRAGMA`, `ATTACH`, table functions and a deny-list of functions such as `load_extension`, `readfile`,
+`writefile` — and their Postgres cousins `pg_sleep`, `pg_read_file`, `dblink` — are refused, with a raw-text
+belt-and-braces scan), allow-list resolution (every table is an enabled view or a CTE/derived alias defined in
+the same statement; a CTE named after a view cannot launder a base table; `sqlite_master`/`sqlite_schema`,
+other schemas, `temp` and `information_schema`/`pg_catalog` are refused), sensitive-column surface (columns
+flagged `sensitive` are excluded from the prompt, refused when referenced, and `SELECT *` on a view that has
+them is refused), a row cap (an outer `LIMIT` is added or clamped), the scope predicate (§3.3), and a statement
+timeout enforced by the executor. The corpus has zero false negatives and zero false positives.
 
 ### 3.5 GenAI-specific defences
 Prompts are versioned files with a content hash; `prompt_version_id` is recorded on the turn and on every
@@ -164,9 +174,15 @@ are masked in any free-text log line; traces have a retention window (`TRACE_RET
    prompt and the execution, and a clean answer to "which SDK is calling the model" (`core/llm/client.py` is
    the only place). The alternative — LangChain/LlamaIndex agents — would have hidden the guard insertion
    points and the accounting behind abstractions we would then have to fight.
-2. **PostgreSQL rather than SQL Server.** The dialect is confined to `analytics_pool.py` (the engine) and the
-   guard's `sqlglot` dialect argument (`data_source.dialect`); the deny-lists are per-dialect data. Swapping is a
-   configuration-level change, not an architectural one.
+2. **SQLite for the analytics data, PostgreSQL for Lens's own state.** The business data is a single file
+   with no server to run, which is what made adopting a third-party dataset verbatim a one-afternoon change:
+   the dialect lives in `data_source.dialect` (mapped to `sqlglot`'s name in `normalise.sqlglot_dialect`),
+   the engine in `analytics_pool.py`, and the deny-lists are per-dialect data. The Postgres version of the
+   same module — a `lens_readonly` role with `GRANT SELECT` on the views — was the previous iteration, and
+   moving back (or on to SQL Server) is a configuration-level change, not an architectural one. The app-db
+   stays on Postgres because Alembic, `JSONB`, `TIMESTAMPTZ` and concurrent writers are exactly what SQLite
+   is weakest at.
+
 3. **React rather than Angular.** All chat logic is server-side; the SPA is a thin client over a documented
    API (`/api/v1/docs`) that never changed during the build. That is what made the frontend cheap and what
    would make a swap cheap.
@@ -188,13 +204,32 @@ are masked in any free-text log line; traces have a retention window (`TRACE_RET
    keeps rewriting to a single, well-defined AST operation (`repair_scope`) that only ever narrows.
 7. **In-process execution with an ephemeral namespace** rather than a container per turn — implemented as a
    forked child of the API process so `setrlimit` caps apply to the child only. ~100 ms warm, no infrastructure,
-   and the containment is the read-only role, no egress, no new processes and resource caps. A container per turn
+   and the containment is the view-only analytics connection (§4.1), no egress, no new processes and resource caps. A container per turn
    (§5) is the production hardening.
 
 Two smaller decisions worth recording: the injection screen runs a deterministic pre-screen first so blatant
 attacks cost no model call (the adversarial fixtures assert this); and the agent loop refuses an answer that
 has no query behind it — a live evaluation with a free model showed it confidently inventing figures, which is
 exactly the failure a data product cannot ship.
+
+### 4.1 Read-only enforcement without database roles
+SQLite has no roles, so the "SELECT on `v_*` and nothing else" guarantee is rebuilt from three primitives,
+applied on every connection the API opens (`analytics_pool.py`): the file is opened `mode=ro` (the OS refuses
+writes before any SQL runs); `PRAGMA query_only` (the engine refuses writes, temp tables and ATTACH); and an
+**authorizer callback** — SQLite consults it while compiling every statement, once per table/column access,
+and tells it which view or trigger is responsible for the access. The callback allows reads of the
+allow-listed views, allows the base-table reads those views perform internally, and denies everything else:
+base tables, `sqlite_master`, PRAGMA, ATTACH, `load_extension`, every write and DDL action, and views that
+exist in the file but are not on the allow-list (the upstream `ProductDetails_V` and `Order Subtotals` are the
+standing test cases). The statement timeout is a progress handler armed with a deadline per statement. The
+residual, documented in the module: after query flattening SQLite re-announces a view's base tables with an
+empty column name and no source ("table referenced, no column extracted"). The callback accepts such a read
+only when the table is one an exposed view is built on (discovered at start-up by compiling each view under
+a recording authorizer) *and* an exposed view has already been named in the current statement (a flag
+`execute_readonly` resets around every statement). So `SELECT COUNT(*) FROM v_x, <base table>` compiles and
+yields a row count — never a value — while `SELECT COUNT(*) FROM <base table>` on its own does not; and the
+SQL guard refuses any base-table reference long before a statement gets there. `test_analytics_readonly.py`
+bypasses the guard on purpose to prove the database itself refuses what the guard would have refused.
 
 ## 5. Deliberately out of scope
 
@@ -226,7 +261,17 @@ exactly the failure a data product cannot ship.
   (402/403/5xx/length overruns/unparseable gateway bodies all fall through), per-turn and per-user-per-day
   ceilings that fail loudly.
 * **LLMOps** — prompt ids and hashes on every call; golden set (hermetic half in CI, live half on demand);
-  adversarial fixtures; feedback stored with `trace_id`; model configuration per stage as data.
+  adversarial fixtures; feedback stored with `trace_id`; model configuration per stage as data; optional
+  [LangSmith](https://smith.langchain.com) run logging alongside the in-app tracer (`LANGSMITH_API_KEY`,
+  off by default) for prompt-level inspection and eval tooling the home-grown trace viewer doesn't have —
+  a second, external record of the same calls, never a dependency: unset, unreachable or erroring, it is a
+  silent no-op and the request proceeds exactly as without it. LangSmith is deliberately scoped to tracing
+  only, not prompt storage: prompts stay as git-tracked files under `app/prompts/` (LangSmith also offers a
+  cloud Prompt Hub, but that would make prompt history depend on a third-party account and network access to
+  run the app, and would forfeit code-review diffs on prompt changes). The link between the two systems is
+  `prompt_version_id` — computed locally from the file's `id`/`version` header and a content hash, recorded on
+  every model call, and attached as metadata on the corresponding LangSmith run — so a run there is always
+  traceable back to the exact prompt text in git.
 * **HTTP** — explicit CORS allow-list, CSP and security headers (also on nginx), request size cap, per-IP and
   per-user rate limits with a stricter `/chat` bucket, idempotency keys on pin and refresh, RFC 7807 errors
   that carry a `request_id` and never SQL, DSNs, stack traces or provider payloads.
@@ -236,14 +281,19 @@ exactly the failure a data product cannot ship.
   floor is the gateway's latency per call (screen ≈ 2.5 s, verifier ≈ 3 s, agent steps ≈ 3–5 s each). With a
   direct OpenAI account the same pipeline measured ≈ 10 s. Overlapping the screen with context assembly and
   caching the verifier verdict per `sql_hash` are the next two cuts.
-* The live golden-set score depends on the model and on the provider's quota. On the OpenRouter free tier
-  used during development the best complete run served 17 of the 20 questions before the account hit its
-  402/rate-limit ceiling; **all 17 were runnable on the first attempt and matched the reference** (100 % on
-  what the provider served). Earlier runs with a free "thinking" model exposed two failure classes that are
-  now handled deterministically: reasoning overruns of `max_tokens` (treated as a provider failure that falls
-  through the chain) and confident answers with no query behind them (refused as `ungrounded_answer`). The
-  deterministic half (SQL compiles, predicate present, shape correct) is what CI enforces; the live half needs
-  a funded provider account to complete.
+* The live golden-set score depends on the model and on the provider's quota. Against OpenAI directly
+  (`gpt-4o` agent, `gpt-4o-mini` elsewhere) the Northwind golden set scored **20 of 20 runnable on the first attempt, 18 of 20 matching the reference** (100 % / 90 %; gates are
+  90 / 85). The organisation's 30 000 tokens-per-minute ceiling on `gpt-4o` is the main source of misses:
+  when retries are exhausted the chain falls to `gpt-4o-mini` — the honest-degradation path, not a wrong
+  answer. Rate-limit retries honour the provider's `retry-after` hint. Earlier development on a free gateway exposed two
+  failure classes that are handled deterministically: reasoning overruns of `max_tokens` (treated as a
+  provider failure that falls through the chain) and confident answers with no query behind them (refused as
+  `ungrounded_answer`). The deterministic half (SQL compiles, predicate present, shape correct) is what CI
+  enforces.
+* The order-line views scan 609k rows; a full aggregate over `v_order_lines` or `v_category_sales` takes
+  0.5–1.5 s on the compose host, well inside the 8 s statement timeout, but the 30 s query cache is what makes
+  a dashboard refresh feel instant. Pre-aggregated views (`v_monthly_sales`, `v_category_sales`,
+  `v_customer_sales`) exist so the model has a cheap path for the common questions.
 * `usage_counter` is per user per day in the app-db; a multi-replica deployment should move rate limits and
   ceilings to Redis atomics (the rate limiter already is).
 
@@ -256,6 +306,6 @@ exactly the failure a data product cannot ship.
 3. Run the executor as a separate service with a container per execution; the `run_python` contract
    (code + pickled namespace in, stdout + figures + namespace out) is already a message boundary.
 4. Promote the parser to enforcer for rule 5 once the shadow-disagreement metric has been flat for a period.
-5. Add database RLS on the analytics side, driven by an on-behalf-of identity, as a second, independent scope
-   enforcement.
+5. When the analytics data moves to a server database, add RLS driven by an on-behalf-of identity as a
+   second, independent scope enforcement (the SQLite authorizer enforces the allow-list, not row scope).
 6. Scheduled refresh and snapshots as a worker over the existing `refresh_tile` function.

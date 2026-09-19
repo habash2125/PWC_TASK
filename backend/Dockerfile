@@ -19,7 +19,7 @@ RUN pip install --no-deps .
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
 RUN groupadd --system lens && useradd --system --gid lens --home /app --shell /usr/sbin/nologin lens \
- && mkdir -p /app /app/scratch && chown -R lens:lens /app
+ && mkdir -p /app /app/scratch /app/data && chown -R lens:lens /app
 WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
 COPY --chown=lens:lens . .

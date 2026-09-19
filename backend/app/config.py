@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr, field_validator, model_validator
@@ -30,16 +31,10 @@ class Settings(BaseSettings):
     app_db_password: SecretStr = SecretStr("lens_app_dev_pw")
     app_db_pool_size: int = 10
 
-    # ── analytics-db ────────────────────────────────────────────────────────
-    analytics_db_host: str = "localhost"
-    analytics_db_port: int = 5432
-    analytics_db_name: str = "lens_analytics"
-    analytics_db_admin_user: str = "lens_analytics_owner"
-    analytics_db_admin_password: SecretStr = SecretStr("lens_analytics_owner_dev_pw")
-    analytics_db_readonly_user: str = "lens_readonly"
-    analytics_db_readonly_password: SecretStr = SecretStr("lens_readonly_dev_pw")
-    analytics_dsn_secret_ref: str = "ANALYTICS_DB_READONLY_DSN"
-    analytics_db_pool_size: int = 8
+    # ── analytics-db (SQLite file; the seed writes it, the API opens it read-only) ──
+    analytics_sqlite_path: str = "./data/analytics/northwind.db"
+    analytics_dsn_secret_ref: str = "ANALYTICS_SQLITE_PATH"
+    analytics_db_pool_size: int = 4
 
     # ── cache ───────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
@@ -118,6 +113,11 @@ class Settings(BaseSettings):
     metrics_enabled: bool = True
     otel_batch_delay_ms: int = 500
 
+    # ── LangSmith (optional third-party LLM tracing; blank key = disabled) ────
+    langsmith_api_key: SecretStr = SecretStr("")
+    langsmith_project: str = "lens"
+    langsmith_endpoint: str = ""  # blank = https://api.smith.langchain.com
+
     @field_validator("llm_pricing_json")
     @classmethod
     def _pricing_is_json(cls, v: str) -> str:
@@ -131,20 +131,13 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.app_db_user}:{pw}@{self.app_db_host}:{self.app_db_port}/{self.app_db_name}"
 
     @property
-    def analytics_readonly_url(self) -> str:
-        pw = self.analytics_db_readonly_password.get_secret_value()
-        return (
-            f"postgresql+asyncpg://{self.analytics_db_readonly_user}:{pw}"
-            f"@{self.analytics_db_host}:{self.analytics_db_port}/{self.analytics_db_name}"
-        )
+    def analytics_sqlite_file(self) -> Path:
+        return Path(self.analytics_sqlite_path).expanduser().resolve()
 
     @property
-    def analytics_admin_url(self) -> str:
-        pw = self.analytics_db_admin_password.get_secret_value()
-        return (
-            f"postgresql+asyncpg://{self.analytics_db_admin_user}:{pw}"
-            f"@{self.analytics_db_host}:{self.analytics_db_port}/{self.analytics_db_name}"
-        )
+    def analytics_readonly_url(self) -> str:
+        # SQLite URI form so the file can be opened ``mode=ro``: the OS refuses writes before any guard runs
+        return f"sqlite+aiosqlite:///file:{self.analytics_sqlite_file}?mode=ro&uri=true"
 
     @property
     def fallback_models(self) -> list[str]:
@@ -169,6 +162,10 @@ class Settings(BaseSettings):
     @property
     def is_prod(self) -> bool:
         return self.app_env == "prod"
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        return bool(self.langsmith_api_key.get_secret_value())
 
 
 @lru_cache(maxsize=1)

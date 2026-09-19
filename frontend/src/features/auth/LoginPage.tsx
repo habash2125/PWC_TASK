@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, ErrorBox } from "@/components/ui";
 
@@ -30,12 +30,13 @@ export function LoginPage() {
     <div className="login">
       <form className="panel stack" onSubmit={submit}>
         <div className="brand" style={{ color: "var(--text)" }}><span className="dot" /> Lens</div>
-        <p className="muted">Ask questions about the delivery portfolio, keep the answers as dashboards.</p>
+        <p className="muted">Ask questions about your data in plain language, keep the answers as dashboards.</p>
         <div><label>E-mail</label><input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></div>
         <div><label>Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div>
         <ErrorBox error={error} />
         <Button variant="primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
         <p className="muted small">Seeded users: admin@, analyst@, analyst2@, partner@lens.demo — passwords in README.</p>
+        <p className="muted small">New here? <Link to="/signup">Create an account</Link>.</p>
       </form>
     </div>
   );

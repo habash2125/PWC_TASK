@@ -36,7 +36,7 @@ from app.core.security.access_scope import (
     find_scoped_references,
     repair_scope,
 )
-from app.core.sql.normalise import sql_hash
+from app.core.sql.normalise import sql_hash, sqlglot_dialect
 from app.core.sql.schema_context import AllowList
 from app.core.sql.sql_limit import apply_row_cap
 from app.observability import metrics
@@ -91,13 +91,24 @@ FORBIDDEN_FUNCTIONS = {
     "pg_try_advisory_lock",
     "pg_logical_slot_get_changes",
     "pg_get_functiondef",
+    # SQLite: filesystem / process reach
+    "load_extension",
+    "readfile",
+    "writefile",
+    "fsdir",
+    "edit",
 }
-FORBIDDEN_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
+FORBIDDEN_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast", "temp", "sqlite_temp_master"}
+# the engine's own catalogue tables; they never appear on an allow-list but are refused by name as well
+FORBIDDEN_TABLES = {"sqlite_master", "sqlite_schema", "sqlite_temp_master", "sqlite_temp_schema", "sqlite_sequence"}
+ALLOWED_SCHEMAS = {"public", "main"}
 # belt and braces on the raw text (comments stripped): catches keywords sqlglot may fold into a Command
 _RAW_FORBIDDEN = re.compile(
     r"\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|copy|call|do|vacuum|analyze|reindex|"
-    r"cluster|listen|notify|prepare|execute|deallocate|discard|lock|refresh\s+materialized|security\s+label|comment\s+on)\b"
-    r"|\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b|\bpg_sleep\b|\bpg_read_file\b|\bdblink\b|\blo_import\b",
+    r"cluster|listen|notify|prepare|execute|deallocate|discard|lock|refresh\s+materialized|security\s+label|comment\s+on|"
+    r"pragma|attach|detach|replace\s+into)\b"
+    r"|\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b|\bpg_sleep\b|\bpg_read_file\b|\bdblink\b|\blo_import\b"
+    r"|\bload_extension\b|\breadfile\b|\bwritefile\b",
     re.IGNORECASE,
 )
 _COMMENT = re.compile(r"(--[^\n]*)|(/\*.*?\*/)", re.DOTALL)
@@ -147,7 +158,7 @@ def strip_comments(sql: str) -> str:
     return _COMMENT.sub(" ", sql)
 
 
-def parse_single(sql: str, dialect: str = "postgres") -> exp.Expression:
+def parse_single(sql: str, dialect: str = "sqlite") -> exp.Expression:
     """Rule 1: exactly one statement."""
     cleaned = strip_comments(sql).strip()
     if not cleaned:
@@ -208,9 +219,11 @@ def check_allow_list(root: exp.Expression, allow: AllowList) -> None:
         schema = (table.db or "").lower()
         if schema and schema in FORBIDDEN_SCHEMAS:
             raise GuardBlockedError(f"schema {schema} is not accessible", rule="allow_list")
-        if schema and schema != "public":
+        if schema and schema not in ALLOWED_SCHEMAS:
             raise GuardBlockedError(f"schema {schema} is not on the allow-list", rule="allow_list")
         name = table.name.lower()
+        if name in FORBIDDEN_TABLES:
+            raise GuardBlockedError(f"'{table.name}' is not accessible", rule="allow_list")
         if name in ctes or name in derived:
             continue
         if name not in allowed:
@@ -284,7 +297,7 @@ class SqlGuard:
         self.settings = settings
 
     def _hard_rules(self, sql: str, allow: AllowList) -> exp.Expression:
-        root = parse_single(sql, allow.dialect if allow.dialect != "postgresql" else "postgres")
+        root = parse_single(sql, sqlglot_dialect(allow.dialect))
         check_read_only(root, sql)
         check_allow_list(root, allow)
         return root
@@ -292,7 +305,7 @@ class SqlGuard:
     async def check(
         self, sql: str, *, allow: AllowList, scope: ScopePredicate, mode: Literal["chat", "refresh"]
     ) -> GuardResult:
-        dialect = "postgres"
+        dialect = sqlglot_dialect(allow.dialect)
         rules_failed: list[str] = []
         # ── hard deterministic rules (1, 2, 3) ───────────────────────────────
         try:
@@ -393,7 +406,7 @@ class SqlGuard:
             kind="scope" if verdict == "repaired" else "sql_guard",
             sql_canonical=canonical,
             sql_bound=bound,
-            sql_hash=sql_hash(canonical),
+            sql_hash=sql_hash(canonical, dialect),
             rules_failed=rules_failed,
             shadow_parser_verdict=parser_verdict,
             llm_used=llm_used,

@@ -34,11 +34,13 @@ import sqlglot
 from sqlglot import exp
 
 from app.api.errors import ScopeUnavailable
+from app.db.seed.analytics_catalog import SCOPE_KEY
 from app.observability import metrics
 
 log = logging.getLogger("lens.sql")
 
 PLACEHOLDER_PREFIX = "lens_scope_"
+DEFAULT_SCOPE_KEY = SCOPE_KEY  # the catalogue decides what rows are scoped on (region_id for this dataset)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +212,7 @@ def repair_scope(root: exp.Expression, scope_columns: dict[str, str]) -> tuple[e
     return root, injected
 
 
-def bind_scope(root: exp.Expression, predicate: ScopePredicate, dialect: str = "postgres") -> str:
+def bind_scope(root: exp.Expression, predicate: ScopePredicate, dialect: str = "sqlite") -> str:
     """Replaces every ``IN (:lens_scope_<key>)`` with the executor's literal values.
 
     * unrestricted → ``TRUE``
@@ -259,5 +261,5 @@ def scope_prompt_instruction(predicate: ScopePredicate, scoped_views: list[str])
     return "\n".join(lines)
 
 
-def parse_one(sql: str, dialect: str = "postgres") -> exp.Expression:
+def parse_one(sql: str, dialect: str = "sqlite") -> exp.Expression:
     return sqlglot.parse_one(sql, read=dialect)

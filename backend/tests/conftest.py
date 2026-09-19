@@ -1,8 +1,9 @@
 """Shared fixtures.
 
-Tests run against the real app-db and analytics-db (started with
-``docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d app-db analytics-db cache``)
-and the real guard, sandbox and auth code.  Only the model provider is scripted.
+Tests run against the real app-db and cache (started with
+``docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d app-db cache``), the real
+SQLite analytics file (``python -m app.db.seed.analytics_seed``) and the real guard, sandbox and
+auth code.  Only the model provider is scripted.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ os.environ.setdefault("OTEL_BATCH_DELAY_MS", "50")
 from app.config import Settings, get_settings  # noqa: E402
 from app.core.auth.password import hash_password  # noqa: E402
 from app.db.models import AccessScope, AppUser, DataSource, Tenant, UserRole  # noqa: E402
+from app.db.seed.analytics_catalog import SCOPE_KEY  # noqa: E402
 
 RESET_TABLES = (
     "tile_refresh",
@@ -190,7 +192,10 @@ async def make_user(app, seeded):
             if scope is not None:
                 session.add(
                     AccessScope(
-                        user_id=user.id, data_source_id=seeded["source_id"], scope_key="client_id", scope_values=scope
+                        user_id=user.id,
+                        data_source_id=seeded["source_id"],
+                        scope_key=SCOPE_KEY,
+                        scope_values=scope,
                     )
                 )
             await session.commit()

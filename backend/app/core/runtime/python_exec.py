@@ -106,6 +106,7 @@ BLOCKED_MODULES = frozenset(
         "sqlite3",
         "psycopg",
         "asyncpg",
+        "aiosqlite",
         "sqlalchemy",
         "openai",
         "app",

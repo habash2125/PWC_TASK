@@ -4,8 +4,11 @@ x-api-env: &api-env
   env_file: .env
   environment:
     APP_DB_HOST: app-db
-    ANALYTICS_DB_HOST: analytics-db
+    ANALYTICS_SQLITE_PATH: /app/data/analytics/northwind.db
     REDIS_URL: redis://cache:6379/0
+  volumes:
+    # the analytics SQLite file: written once by `migrate`, opened read-only by `api`
+    - analytics-data:/app/data
 
 services:
   app-db:
@@ -22,20 +25,6 @@ services:
       timeout: 3s
       retries: 20
 
-  analytics-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${ANALYTICS_DB_NAME:-lens_analytics}
-      POSTGRES_USER: ${ANALYTICS_DB_ADMIN_USER:-lens_analytics_owner}
-      POSTGRES_PASSWORD: ${ANALYTICS_DB_ADMIN_PASSWORD:-lens_analytics_owner_dev_pw}
-    volumes:
-      - analytics-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ANALYTICS_DB_ADMIN_USER:-lens_analytics_owner} -d ${ANALYTICS_DB_NAME:-lens_analytics}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   cache:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
@@ -45,7 +34,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Runs the Alembic chain, the app seed and the analytics seed, then exits 0.
+  # Runs the Alembic chain, the app seed and builds the analytics SQLite file, then exits 0.
   # `api` waits for this to complete successfully — the API never migrates itself.
   migrate:
     build:
@@ -54,8 +43,6 @@ services:
     command: ["python", "-m", "app.db.seed.run_all"]
     depends_on:
       app-db:
-        condition: service_healthy
-      analytics-db:
         condition: service_healthy
 
   api:
@@ -92,4 +79,4 @@ services:
 
 volumes:
   app-db-data:
-  analytics-db-data:
+  analytics-data:

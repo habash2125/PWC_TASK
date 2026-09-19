@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
+from sqlalchemy import select
 
 from app.api.deps import CurrentPrincipal, DbSession, SettingsDep, request_meta, require_role
 from app.api.errors import AuthenticationError, ConflictError
@@ -17,14 +18,15 @@ from app.api.schemas.auth import (
     PrincipalOut,
     RegisterRequest,
     ScopeOut,
+    SignupRequest,
     TokenResponse,
     UserOut,
 )
 from app.core.auth import get_token_service
 from app.core.auth.password import hash_password
-from app.core.auth.providers import AuthenticationFailed, Credentials, LocalPasswordProvider
+from app.core.auth.providers import AuthenticationFailed, Credentials, LocalPasswordProvider, principal_from_user
 from app.core.auth.rbac import Principal
-from app.db.models import UserRole
+from app.db.models import Tenant, UserRole
 from app.db.repos.audit import AuditRepo
 from app.db.repos.users import TokenRepo, UserRepo
 from app.observability import metrics
@@ -101,6 +103,47 @@ async def register(
         **request_meta(request),
     )
     return UserOut.model_validate(user)
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=201)
+async def signup(
+    body: SignupRequest, session: DbSession, settings: SettingsDep, request: Request, response: Response
+) -> TokenResponse:
+    """Public self-service sign-up.
+
+    New accounts land in the single demo tenant with the viewer role and no access
+    scope. Access scope is fail-closed (see access_scope.py): a user with no scope row
+    can sign in but sees no analytics rows until an admin grants one via /auth/register
+    -equivalent scope management — self-signup never grants data access on its own.
+    """
+    users = UserRepo(session)
+    if await users.by_email(body.email) is not None:
+        raise ConflictError("A user with that e-mail already exists")
+    tenant = (await session.execute(select(Tenant).where(Tenant.name == settings.seed_tenant_name))).scalar_one_or_none()
+    if tenant is None:
+        tenant = Tenant(name=settings.seed_tenant_name)
+        session.add(tenant)
+        await session.flush()
+    user = await users.create(
+        tenant_id=tenant.id,
+        email=body.email,
+        password_hash=hash_password(body.password),
+        full_name=body.full_name,
+        role=UserRole.viewer,
+    )
+    meta = request_meta(request)
+    await AuditRepo(session).write(
+        action="user.signup",
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        object_type="app_user",
+        object_id=user.id,
+        **meta,
+    )
+    principal = principal_from_user(user)
+    access, exp, refresh = await _issue_pair(session, settings, principal, meta)
+    _set_refresh_cookie(response, refresh, settings)
+    return TokenResponse(access_token=access, expires_at=exp)
 
 
 @router.post("/login", response_model=TokenResponse)

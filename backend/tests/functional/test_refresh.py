@@ -12,8 +12,10 @@ from app.core.sql.normalise import sql_hash
 from app.db.models import SavedChart, UserRole
 from tests.fakes import ScriptedTransport, happy_path_script
 
-CLIENT_ROWS_SQL = "SELECT client_id, client_name, project_name, budget FROM v_project_overview WHERE client_id IN (:lens_scope_client_id) ORDER BY client_id"
-RENDER = "fig = px.bar(df, x='project_name', y='budget', color='client_name', title='Budget by project')\nfig.show()"
+CLIENT_ROWS_SQL = "SELECT region_id, region_name, employee_name, revenue FROM v_employee_sales WHERE region_id IN (:lens_scope_region_id) ORDER BY region_id"
+RENDER = (
+    "fig = px.bar(df, x='employee_name', y='revenue', color='region_name', title='Revenue by employee')\nfig.show()"
+)
 
 
 @pytest.fixture
@@ -128,7 +130,7 @@ async def test_refresh_uses_viewers_scope_not_pinners(login, make_user, api_fact
     narrow = (await viewer.post(f"/dashboards/{d['id']}/tiles/{tile['id']}/refresh")).json()
     assert wide["status"] == narrow["status"] == "ok"
     assert narrow["row_count"] < wide["row_count"]
-    client_col = narrow["columns"].index("client_id")
+    client_col = narrow["columns"].index("region_id")
     assert {r[client_col] for r in narrow["rows"]} <= {1, 2}
     assert {r[client_col] for r in wide["rows"]} > {1, 2}
     assert wide["sql_hash"] == narrow["sql_hash"]  # same artefact, different binding
@@ -194,7 +196,7 @@ async def test_refresh_when_scope_source_fails_is_an_error_state(login, make_cha
 async def test_refresh_of_invalid_query_says_so(login, make_chart, seeded):
     owner = await login("analyst@lens.demo")
     bad_sql = (
-        "SELECT client_id, column_that_was_dropped FROM v_project_overview WHERE client_id IN (:lens_scope_client_id)"
+        "SELECT region_id, column_that_was_dropped FROM v_employee_sales WHERE region_id IN (:lens_scope_region_id)"
     )
     chart_id = await make_chart(seeded["users"]["analyst@lens.demo"], sql=bad_sql)
     d, tile = await _dashboard_with_tile(owner, chart_id)

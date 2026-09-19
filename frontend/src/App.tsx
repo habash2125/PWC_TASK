@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import { LoginPage } from "@/features/auth/LoginPage";
+import { SignupPage } from "@/features/auth/SignupPage";
 import { ChatPage } from "@/features/chat/ChatPage";
 import { ChartsPage } from "@/features/charts/ChartsPage";
 import { DashboardsPage } from "@/features/dashboards/DashboardsPage";
@@ -49,6 +50,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
             <Route element={<Shell />}>
               <Route index element={<Navigate to="/dashboards" replace />} />
               <Route path="/chat" element={<ChatPage />} />

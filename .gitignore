@@ -29,3 +29,6 @@ frontend/dist/
 .vscode/
 *.log
 scratch/
+
+# analytics SQLite file built by the seed (backend/data/); the vendored upstream copy under app/db/seed/northwind is tracked
+backend/data/

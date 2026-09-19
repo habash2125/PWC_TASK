@@ -1,4 +1,4 @@
-"""Entrypoint for the ``migrate`` compose service: migrations, app seed, analytics seed, then exit 0."""
+"""Entrypoint for the ``migrate`` compose service: migrations, app seed, analytics SQLite build, then exit 0."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def main() -> int:
     print("migrate: alembic upgrade head", flush=True)
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
     asyncio.run(seed_app())
-    asyncio.run(seed_analytics(force="--force" in sys.argv))
+    seed_analytics(force="--force" in sys.argv)  # synchronous: sqlite3 stdlib
     print("migrate: done", flush=True)
     return 0
 

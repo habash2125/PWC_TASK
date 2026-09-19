@@ -98,12 +98,12 @@ class ScriptedTransport(_FakeMarker):
 
 
 SQL_OVERVIEW = (
-    "SELECT project_name, client_name, budget_burn_ratio, milestone_completion_ratio FROM v_delivery_health "
-    "WHERE client_id IN (:lens_scope_client_id) AND budget_burn_ratio > 0.8 AND milestone_completion_ratio < 0.5 ORDER BY budget_burn_ratio DESC"
+    "SELECT region_name, COUNT(*) AS orders, SUM(order_total) AS revenue FROM v_orders "
+    "WHERE region_id IN (:lens_scope_region_id) GROUP BY region_name ORDER BY revenue DESC"
 )
 CODE_BAR = (
-    "fig = px.bar(df, x='project_name', y='budget_burn_ratio', color='client_name', title='Projects over 80% burn with under half of milestones closed')\n"
-    "fig.update_layout(yaxis_tickformat='.0%')\n"
+    "fig = px.bar(df, x='region_name', y='revenue', title='Revenue by sales region')\n"
+    "fig.update_layout(yaxis_title='Net revenue')\n"
     "fig.show()\n"
     "print(df.to_string())"
 )

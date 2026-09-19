@@ -14,17 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.core.auth.password import hash_password
 from app.db.models import AccessScope, AppUser, DataSource, DataSourceView, Tenant, UserRole
-from app.db.seed.analytics_catalog import VIEWS
+from app.db.seed.analytics_catalog import DATASET, SCOPE_KEY, VIEWS
 from app.db.session import dispose_app_db, init_app_db, session_factory
 
-# email, role, scope over client_id, settings attribute holding the password
-SEED_USERS = [
+# email, role, scope values over the catalogue's SCOPE_KEY (the catalogue says what a value means),
+# settings attribute holding the password
+SEED_USERS: list[tuple[str, str, UserRole, list[int | str], str]] = [
     ("admin@lens.demo", "Lens Admin", UserRole.admin, ["*"], "seed_admin_password"),
     ("analyst@lens.demo", "Ava Analyst", UserRole.analyst, ["*"], "seed_analyst_password"),
-    ("analyst2@lens.demo", "Ben Analyst", UserRole.analyst, [1, 2, 3], "seed_analyst2_password"),
-    ("partner@lens.demo", "Priya Partner", UserRole.viewer, [1, 2], "seed_partner_password"),
+    ("analyst2@lens.demo", "Ben Analyst", UserRole.analyst, list(DATASET.demo_scope_partial), "seed_analyst2_password"),
+    ("partner@lens.demo", "Priya Partner", UserRole.viewer, list(DATASET.demo_scope_single), "seed_partner_password"),
 ]
-DATA_SOURCE_NAME = "Delivery Portfolio"
+DATA_SOURCE_NAME = DATASET.name
 
 
 async def _get_or_create_tenant(session: AsyncSession, name: str) -> Tenant:
@@ -62,12 +63,21 @@ async def _upsert_source(session: AsyncSession, settings: Settings, tenant: Tena
             tenant_id=tenant.id,
             name=DATA_SOURCE_NAME,
             dsn_secret_ref=settings.analytics_dsn_secret_ref,
-            read_only_role=settings.analytics_db_readonly_user,
-            dialect="postgresql",
+            read_only_role="sqlite:authorizer(view-only)",  # SQLite has no roles; see analytics_pool.py
+            dialect="sqlite",
             created_by=admin.id,
         )
         session.add(source)
         await session.flush()
+    source.dialect = "sqlite"
+    source.dsn_secret_ref = settings.analytics_dsn_secret_ref
+    source.is_active = True
+    # the demo tenant has exactly one live source: anything left from an earlier dataset is switched off
+    others = (
+        await session.execute(select(DataSource).where(DataSource.tenant_id == tenant.id, DataSource.id != source.id))
+    ).scalars()
+    for other in others:
+        other.is_active = False
     existing = {
         v.view_name: v
         for v in (
@@ -86,6 +96,10 @@ async def _upsert_source(session: AsyncSession, settings: Settings, tenant: Tena
         row.column_metadata = [c.as_dict() for c in v.columns]
         row.scope_column = v.scope_column
         row.allow_row_samples = v.allow_row_samples
+        row.is_enabled = True
+    for name, row in existing.items():
+        if name not in {v.name for v in VIEWS}:
+            await session.delete(row)  # a view that left the catalogue must leave the allow-list
     return source
 
 
@@ -95,12 +109,12 @@ async def _upsert_scope(session: AsyncSession, user: AppUser, source: DataSource
             select(AccessScope).where(
                 AccessScope.user_id == user.id,
                 AccessScope.data_source_id == source.id,
-                AccessScope.scope_key == "client_id",
+                AccessScope.scope_key == SCOPE_KEY,
             )
         )
     ).scalar_one_or_none()
     if scope is None:
-        session.add(AccessScope(user_id=user.id, data_source_id=source.id, scope_key="client_id", scope_values=values))
+        session.add(AccessScope(user_id=user.id, data_source_id=source.id, scope_key=SCOPE_KEY, scope_values=values))
     else:
         scope.scope_values = values
 

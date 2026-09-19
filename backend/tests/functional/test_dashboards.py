@@ -16,7 +16,7 @@ import pytest
 from app.core.sql.normalise import sql_hash
 from app.db.models import SavedChart, UserRole
 
-SIMPLE_SQL = "SELECT client_name, COUNT(*) AS projects FROM v_project_overview WHERE client_id IN (:lens_scope_client_id) GROUP BY client_name"
+SIMPLE_SQL = "SELECT region_name, COUNT(*) AS orders FROM v_orders WHERE region_id IN (:lens_scope_region_id) GROUP BY region_name"
 SIMPLE_SPEC = {
     "data": [{"type": "bar", "x": ["a", "b"], "y": [1, 2]}],
     "layout": {"title": {"text": "Projects by client"}},
@@ -175,6 +175,36 @@ async def test_tile_cannot_move_into_another_dashboards_group(login, make_chart,
         t = await repo.tile(uuid.UUID(d1["id"]), uuid.UUID(tile["id"]))
         with pytest.raises(TileGroupMismatch):
             await repo.move_tile(t, group_id=uuid.UUID(foreign_group))
+
+
+async def test_delete_tile_removes_placement_but_keeps_chart(login, make_user, api_factory, make_chart, seeded):
+    owner = await login("analyst@lens.demo")
+    d = await _create_dashboard(owner, "removable tiles")
+    chart_id = await make_chart(seeded["users"]["analyst@lens.demo"])
+    tile = (await owner.post(f"/dashboards/{d['id']}/tiles", json={"saved_chart_id": str(chart_id)})).json()
+
+    # a viewer grant cannot delete the tile — should fail loudly (403), never silently no-op
+    viewer_id, viewer_email, viewer_pw = await make_user(UserRole.analyst, scope=["*"])
+    viewer = api_factory()
+    assert (await viewer.login(viewer_email, viewer_pw)).status_code == 200
+    await owner.put(f"/dashboards/{d['id']}/grants", json={"grants": [
+        {"principal_id": str(seeded["users"]["analyst@lens.demo"]), "role": "owner"},
+        {"principal_id": str(viewer_id), "role": "viewer"},
+    ]})
+    r = await viewer.delete(f"/dashboards/{d['id']}/tiles/{tile['id']}")
+    assert r.status_code == 403
+    full = (await owner.get(f"/dashboards/{d['id']}")).json()
+    assert len(full["groups"][0]["tiles"]) == 1  # still there
+
+    # the owner can delete it: placement gone, chart untouched
+    r = await owner.delete(f"/dashboards/{d['id']}/tiles/{tile['id']}")
+    assert r.status_code == 204
+    full = (await owner.get(f"/dashboards/{d['id']}")).json()
+    assert full["groups"][0]["tiles"] == []
+    assert (await owner.get(f"/charts/{chart_id}")).status_code == 200
+
+    # deleting an already-deleted tile is a clean 404, not a silent success
+    assert (await owner.delete(f"/dashboards/{d['id']}/tiles/{tile['id']}")).status_code == 404
 
 
 async def test_group_delete_moves_tiles_to_default_group(login, make_chart, seeded):

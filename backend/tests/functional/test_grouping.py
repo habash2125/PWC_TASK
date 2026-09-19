@@ -12,7 +12,7 @@ from app.core.sql.normalise import sql_hash
 from app.db.models import SavedChart
 from tests.fakes import ScriptedTransport
 
-SQL = "SELECT client_name, COUNT(*) AS n FROM v_project_overview WHERE client_id IN (:lens_scope_client_id) GROUP BY client_name"
+SQL = "SELECT region_name, COUNT(*) AS n FROM v_orders WHERE region_id IN (:lens_scope_region_id) GROUP BY region_name"
 
 
 @pytest.fixture

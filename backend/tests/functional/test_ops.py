@@ -105,17 +105,17 @@ async def test_metrics_endpoint(api):
 async def test_allow_list_admin_and_sensitive_columns_hidden(login, seeded):
     analyst = await login("analyst@lens.demo")
     views = (await analyst.get(f"/sources/{seeded['source_id']}/views")).json()
-    overview = next(v for v in views if v["view_name"] == "v_project_overview")
-    assert not any(c["name"] == "delivery_lead_email" for c in overview["column_metadata"])
+    overview = next(v for v in views if v["view_name"] == "v_customers")
+    assert not any(c["name"] == "phone" for c in overview["column_metadata"])
     assert (
         await analyst.patch(f"/sources/{seeded['source_id']}/views/{overview['id']}", json={"is_enabled": False})
     ).status_code == 403
     admin = await login("admin@lens.demo")
     admin_views = (await admin.get(f"/sources/{seeded['source_id']}/views")).json()
     assert any(
-        c["name"] == "delivery_lead_email" and c["sensitive"]
+        c["name"] == "phone" and c["sensitive"]
         for v in admin_views
-        if v["view_name"] == "v_project_overview"
+        if v["view_name"] == "v_customers"
         for c in v["column_metadata"]
     )
     original_rules = overview["business_rules"]

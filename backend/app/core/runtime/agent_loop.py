@@ -46,7 +46,7 @@ log = logging.getLogger("lens.generation")
 class RunSqlArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sql: str = Field(
-        description="One read-only PostgreSQL SELECT against the allow-listed views, with the scope placeholder"
+        description="One read-only SQLite SELECT against the allow-listed views, with the scope placeholder"
     )
     name: str = Field(description="Variable name for the resulting DataFrame, e.g. 'df'")
 

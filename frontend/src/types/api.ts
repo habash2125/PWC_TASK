@@ -24,6 +24,13 @@ export interface ChartSpec {
   layout: Record<string, unknown>;
 }
 
+export interface Suggestions {
+  dataset: string;
+  headline: string;
+  scope_label: string;
+  questions: string[];
+}
+
 export interface Session {
   id: string;
   data_source_id: string;

@@ -65,7 +65,15 @@ _PRESCREEN = [
     ),
     (re.compile(r"\b(drop|truncate|alter)\s+(table|view|schema|database)\b", re.I), "sql_attack"),
     (re.compile(r"\b(delete\s+from|insert\s+into|update\s+\w+\s+set)\b", re.I), "sql_attack"),
-    (re.compile(r"\b(pg_sleep|pg_read_file|dblink|lo_import|information_schema|pg_catalog)\b", re.I), "sql_attack"),
+    (
+        re.compile(
+            r"\b(pg_sleep|pg_read_file|dblink|lo_import|information_schema|pg_catalog|sqlite_master|sqlite_schema|"
+            r"load_extension|readfile|writefile)\b",
+            re.I,
+        ),
+        "sql_attack",
+    ),
+    (re.compile(r"\b(pragma\s+\w+|attach\s+database)\b", re.I), "sql_attack"),
     (re.compile(r"select\s+\*\s+from\s+(users?|app_user|passwords?|credentials)\b", re.I), "sql_attack"),
     (
         re.compile(r"\b(base\s+tables?|underlying\s+tables?)\b.{0,30}\b(bypass|without|instead\s+of)\b", re.I),
@@ -73,7 +81,7 @@ _PRESCREEN = [
     ),
     (
         re.compile(
-            r"\b(other|all)\s+(users'?|clients'?)\s+(data|rows|records)\b.{0,40}\b(i\s+am\s+not|not\s+allowed|bypass|ignore)",
+            r"\b(other|all)\s+(users'?|clients'?|customers'?|regions'?|warehouses'?)\s+(data|rows|records)\b.{0,40}\b(i\s+am\s+not|not\s+allowed|bypass|ignore)",
             re.I,
         ),
         "scope_evasion",
@@ -97,13 +105,14 @@ async def screen_question(question: str) -> ScreenResult:
 
     from app.core.llm.client import get_llm
     from app.core.llm.model_selector import Stage
+    from app.db.seed.analytics_catalog import DATASET
     from app.prompts import get_prompt
 
     prompt = get_prompt("injection_screen")
     resp = await get_llm().complete(
         Stage.screen,
         [
-            {"role": "system", "content": prompt.text},
+            {"role": "system", "content": prompt.render(topics=DATASET.topics)},
             {"role": "user", "content": "<question>\n" + question + "\n</question>"},
         ],
         response_model=ScreenVerdict,

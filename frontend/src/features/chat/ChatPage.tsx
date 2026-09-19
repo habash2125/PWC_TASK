@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
-import { useAsk, useCreateSession, useFeedback, usePinChart, useSessions, useTurns } from "@/api/hooks";
+import { useAsk, useCreateSession, useFeedback, usePinChart, useSessions, useSuggestions, useTurns } from "@/api/hooks";
 import { PlotlyChart } from "@/components/PlotlyChart";
 import { Badge, Button, Collapsible, ErrorBox, Spinner, fmtMs, fmtUsd } from "@/components/ui";
 import type { Turn, TurnChart } from "@/types/api";
 
-const SUGGESTIONS = [
-  "How many active projects does each client have?",
-  "Which projects burned more than 80% of budget with less than half their milestones closed?",
-  "Show monthly planned vs actual spend for the last 12 months and the cumulative actual/planned ratio.",
-  "Which clients have invoices more than 90 days overdue, and for how much?",
-];
-
 export function ChatPage() {
   const sessions = useSessions();
+  const suggestions = useSuggestions();
   const create = useCreateSession();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const turns = useTurns(sessionId);
@@ -63,9 +57,9 @@ export function ChatPage() {
           {turns.isLoading && <Spinner label="Loading conversation…" />}
           {turns.data?.length === 0 && !ask.isPending && (
             <div className="panel">
-              <h2>Ask a question about the delivery portfolio</h2>
+              <h2>{suggestions.data?.headline ?? "Ask a question about your data"}</h2>
               <p className="muted">Answers come back as a short narrative plus interactive charts. Pin any chart to a dashboard; refreshing it later re-runs the SQL with zero model calls.</p>
-              <div className="suggestions">{SUGGESTIONS.map((s) => <Button key={s} size="sm" onClick={() => void submit(undefined, s)}>{s}</Button>)}</div>
+              <div className="suggestions">{(suggestions.data?.questions ?? []).map((s) => <Button key={s} size="sm" onClick={() => void submit(undefined, s)}>{s}</Button>)}</div>
             </div>
           )}
           {turns.data?.map((t) => <TurnView key={t.id} turn={t} />)}
@@ -79,7 +73,7 @@ export function ChatPage() {
           <div ref={bottom} />
         </div>
         <form className="ask" onSubmit={submit}>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Which clients have the most overdue invoices?"
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Which products need reordering in the North Regional Depot?"
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } }} maxLength={4000} />
           <Button variant="primary" type="submit" disabled={ask.isPending || !message.trim()}>Ask</Button>
         </form>
@@ -144,7 +138,7 @@ function ChartBlock({ chart }: { chart: TurnChart }) {
       <PlotlyChart spec={chart.chart_spec} height={340} />
       <Collapsible title={<span>SQL <span className="muted small">· {chart.sql_hash.slice(0, 10)}</span></span>}>
         <pre>{chart.sql_text}</pre>
-        <p className="muted small" style={{ marginTop: 6 }}>The <code>:lens_scope_client_id</code> placeholder is bound to the caller's allowed values at execution time.</p>
+        <p className="muted small" style={{ marginTop: 6 }}>The <code>:lens_scope_*</code> placeholder is bound to the caller's allowed values at execution time.</p>
       </Collapsible>
       {pin.isError && <ErrorBox error={pin.error} />}
     </div>

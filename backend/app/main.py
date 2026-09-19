@@ -38,6 +38,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from app.observability.tracing import setup_tracing, shutdown_tracing
 
         setup_tracing(settings)
+        from app.observability.langsmith_tracing import setup_langsmith, shutdown_langsmith
+
+        setup_langsmith(settings)
         from app.core.llm.client import init_llm
 
         init_llm(settings)
@@ -56,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             sweeper.cancel()
             await shutdown_tracing()
+            shutdown_langsmith()
             await close_cache()
             await dispose_analytics_db()
             await dispose_app_db()

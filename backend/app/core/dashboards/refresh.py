@@ -37,7 +37,7 @@ from app.core.auth.rbac import Principal
 from app.core.cache import get_redis
 from app.core.runtime.agent_loop import _json_safe, _to_frame
 from app.core.runtime.python_exec import run_python
-from app.core.security.access_scope import DbScopeSource
+from app.core.security.access_scope import DEFAULT_SCOPE_KEY, DbScopeSource
 from app.core.sql.schema_context import load_allow_list
 from app.core.sql.sql_guard import SqlGuard
 from app.db.analytics_pool import AnalyticsQueryError, QueryResult, execute_readonly
@@ -123,7 +123,9 @@ async def run_saved_chart(
         # 1. the viewer's scope, fail-closed
         with stage_span("scope"):
             try:
-                scope = await DbScopeSource(session_factory()).fetch(principal.id, chart.data_source_id, "client_id")
+                scope = await DbScopeSource(session_factory()).fetch(
+                    principal.id, chart.data_source_id, DEFAULT_SCOPE_KEY
+                )
             except ScopeUnavailable as exc:
                 outcome.status, outcome.error_code, outcome.message = (
                     RefreshStatus.error,

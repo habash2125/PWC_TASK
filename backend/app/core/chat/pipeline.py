@@ -31,7 +31,7 @@ from app.core.chat.chart_placement import place_charts
 from app.core.chat.prompt_builder import PriorTurn, build_messages
 from app.core.llm.budgets import Usage, check_daily_ceiling
 from app.core.runtime.agent_loop import AgentLoop, AgentOutcome
-from app.core.security.access_scope import DbScopeSource, ScopePredicate
+from app.core.security.access_scope import DEFAULT_SCOPE_KEY, DbScopeSource, ScopePredicate
 from app.core.security.prompt_injection import screen_question
 from app.core.sql.schema_context import AllowList, load_allow_list
 from app.core.sql.sql_guard import SqlGuard
@@ -222,7 +222,7 @@ async def run_turn(
         try:
             allow, scope = await asyncio.gather(
                 load_allow_list(session, chat.data_source_id),
-                DbScopeSource(session_factory()).fetch(principal.id, chat.data_source_id, "client_id"),
+                DbScopeSource(session_factory()).fetch(principal.id, chat.data_source_id, DEFAULT_SCOPE_KEY),
             )
         except ScopeUnavailable as exc:
             timings["context"] = int((time.perf_counter() - t0) * 1000)
