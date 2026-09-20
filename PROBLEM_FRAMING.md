@@ -172,7 +172,7 @@ Anything that decides **what runs** or **who sees what** is code, tested against
   before execution. The verifier model can veto; deterministic repair always runs afterwards and only ever
   narrows. Fail-closed on every path.
 * **SQL guard** — single statement, `SELECT` only, allow-listed views only, no system catalogues, no
-  sensitive columns, row cap, statement timeout. 51 hostile statements blocked, 0 false positives.
+  sensitive columns, row cap, statement timeout. 54 hostile statements blocked, 0 false positives.
 * **Execution** — the analytics file is opened read-only with an authorizer callback that refuses base
   tables and unlisted views at the database layer, independently of the guard.
 * **Chart rendering** — generated Python runs in a forked child with memory/CPU/file/process limits, no
@@ -210,7 +210,7 @@ never the rows.
 | A non-technical user gets a correct, charted answer from a plain-English question | ≥ 90 % of golden-set questions runnable, ≥ 85 % matching reference | 20-question golden set: 20/20 runnable, 18/20 matching against `gpt-4o`; hermetic half runs in CI |
 | No model on the authorisation path | 0 statements executed without a bound scope predicate | `test_sql_guard.py::test_zero_queries_reach_executor_without_verified_scope` |
 | Dashboards work without the model | `llm_calls == 0` on every refresh; service stays ready when the provider is down | `test_refresh.py`, `test_ops.py`, `/health/ready` reports provider as informational |
-| Hostile input is contained | Injection, DDL/DML, catalogue reads, base tables, poisoned data values all blocked or neutralised | 51-statement adversarial corpus, `test_poisoned_row_is_data_not_instruction`, read-only DB tests that bypass the guard on purpose |
+| Hostile input is contained | Injection, DDL/DML, catalogue reads, base tables, poisoned data values all blocked or neutralised | 54-statement adversarial corpus, `test_poisoned_row_is_data_not_instruction`, read-only DB tests that bypass the guard on purpose |
 | Sharing never widens access | A narrower viewer sees fewer rows on the same tile; viewer can never edit | `test_refresh.py`, `test_dashboards.py` (404 not 403, role ceiling) |
 | Cost is bounded and visible | Per-user daily ceilings on turns / tokens / USD; cost per turn recorded | `usage_counter`, `Usage & cost` screen, Prometheus `/metrics` |
 | Interactive latency | ≤ 12 s p95 per turn | ≈ 10 s measured against OpenAI directly; 15–25 s on a free gateway — stated as a known gap |
